@@ -24,17 +24,17 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 SOURCE_DIR = os.path.join(PROJECT_ROOT, "source")
 
-# Download Status Tracking (Simple in-memory for now)
-download_status = {
-    "status": "idle",
-    "message": "Ready to download",
-    "pid": None
-}
+# Download Status Tracking
+# Dictionary key = unique ID (UUID)
+active_downloads = {}
+download_lock = threading.Lock()
 
-def run_download(url: str, threads: int, resolution: str, scene: str, output_dir: str):
-    global download_status
-    download_status["status"] = "running"
-    download_status["message"] = f"Starting download for {url}..."
+def run_download(job_id: str, url: str, threads: int, resolution: str, scene: str, output_dir: str):
+    global active_downloads
+    
+    with download_lock:
+        active_downloads[job_id]["status"] = "running"
+        active_downloads[job_id]["message"] = f"Starting download for {url}..."
     
     cmd = ["python3", "-m", "aebn_dl.cli", url]
     
@@ -42,58 +42,59 @@ def run_download(url: str, threads: int, resolution: str, scene: str, output_dir
         cmd.extend(["--threads", str(threads)])
     
     if resolution:
-        # If resolution is provided, use it. If "0" (lowest), pass "0".
         cmd.extend(["--resolution", str(resolution)])
     
     if scene:
-        # Determine if it's a range or single, user input is "Scene Index"
-        # CLI supports -s for single scene. 
         cmd.extend(["--scene", str(scene)])
         
     if output_dir:
         cmd.extend(["--output_dir", output_dir])
         
-    # Add non-interactive flags if possible or ensure it doesn't block.
-    # The CLI seems designed for interaction? 
-    # Based on help: "--force-resolution" might be good to avoid prompts.
     cmd.append("--force-resolution")
 
     logger.info(f"Running command: {' '.join(cmd)}")
 
     try:
-        # We need to set PYTHONPATH to include the source directory so python -m aebn_dl.cli works
         env = os.environ.copy()
         env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
         
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT, # Merge stderr to stdout for simplicity
             text=True,
             env=env,
-            cwd=PROJECT_ROOT # Run from project root
+            cwd=PROJECT_ROOT
         )
-        download_status["pid"] = process.pid
+        
+        with download_lock:
+             active_downloads[job_id]["pid"] = process.pid
         
         # Capture output line by line
         for line in process.stdout:
-            download_status["message"] = line.strip()
-            logger.info(line.strip())
+            line = line.strip()
+            if line:
+                with download_lock:
+                    active_downloads[job_id]["message"] = line
+                logger.info(f"[{job_id}] {line}")
             
         process.wait()
         
-        if process.returncode == 0:
-            download_status["status"] = "completed"
-            download_status["message"] = "Download finished successfully."
-        else:
-            download_status["status"] = "failed"
-            download_status["message"] = f"Download failed with exit code {process.returncode}"
+        with download_lock:
+            if process.returncode == 0:
+                active_downloads[job_id]["status"] = "completed"
+                active_downloads[job_id]["message"] = "Download finished successfully."
+            else:
+                active_downloads[job_id]["status"] = "failed"
+                active_downloads[job_id]["message"] = f"Download failed with exit code {process.returncode}"
             
     except Exception as e:
-        download_status["status"] = "error"
-        download_status["message"] = f"Error: {str(e)}"
+        with download_lock:
+            active_downloads[job_id]["status"] = "error"
+            active_downloads[job_id]["message"] = f"Error: {str(e)}"
     finally:
-        download_status["pid"] = None
+        with download_lock:
+            active_downloads[job_id]["pid"] = None
 
 @app.get("/")
 async def index(request: Request):
@@ -104,23 +105,39 @@ async def download(
     background_tasks: BackgroundTasks,
     url: str = Form(...),
     threads: int = Form(5),
-    resolution: str = Form("720"), # Default to 720p
+    resolution: str = Form("720"), 
     scene: str = Form(None),
 ):
-    global download_status
-    if download_status["status"] == "running":
-        return JSONResponse(status_code=400, content={"error": "Download already in progress"})
+    global active_downloads
+    
+    # Generate a simple ID
+    import uuid
+    job_id = str(uuid.uuid4())[:8]
+    
+    # Cleanup finished jobs if list gets too long? 
+    # For now, let's keep it simple. User sees all history until restart.
+    
+    with download_lock:
+        active_downloads[job_id] = {
+            "id": job_id,
+            "url": url,
+            "status": "pending",
+            "message": "Queued...",
+            "pid": None
+        }
     
     # Get Download Dir from Env or Default
     output_dir = os.environ.get("DOWNLOAD_DIR", "./downloads")
     
-    background_tasks.add_task(run_download, url, threads, resolution, scene, output_dir)
+    background_tasks.add_task(run_download, job_id, url, threads, resolution, scene, output_dir)
     
-    return {"message": "Download started", "status": "running"}
+    return {"message": "Download started", "job_id": job_id, "status": "pending"}
 
 @app.get("/status")
 async def get_status():
-    return download_status
+    with download_lock:
+        # Return list of downloads
+        return list(active_downloads.values())
 
 @app.get("/system-info")
 async def system_info():

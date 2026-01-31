@@ -16,21 +16,44 @@
         setInterval(async () => {
             try {
                 const response = await fetch('/status');
-                const data = await response.json();
+                const jobs = await response.json();
                 const statusBox = document.getElementById('status-content');
                 const startBtn = document.getElementById('start-btn');
 
-                statusBox.textContent = data.message;
+                // Clear current list
+                statusBox.innerHTML = '';
 
-                if (data.status === 'running') {
-                    startBtn.disabled = true;
-                    statusBox.classList.add('pulsing');
-                    startBtn.textContent = 'Downloading...';
+                if (jobs.length === 0) {
+                    statusBox.innerHTML = '<div style="color: grey">Idle</div>';
                 } else {
-                    startBtn.disabled = false;
-                    statusBox.classList.remove('pulsing');
-                    startBtn.textContent = 'Start Download';
+                    jobs.reverse().forEach(job => {
+                        const jobDiv = document.createElement('div');
+                        jobDiv.style.marginBottom = '1rem';
+                        jobDiv.style.paddingBottom = '0.5rem';
+                        jobDiv.style.borderBottom = '1px solid #30363d';
+
+                        let statusColor = '#8b949e';
+                        if (job.status === 'running') statusColor = '#d29922'; // yellow
+                        if (job.status === 'completed') statusColor = '#238636'; // green
+                        if (job.status === 'failed' || job.status === 'error') statusColor = '#da3633'; // red
+
+                        jobDiv.innerHTML = `
+                            <div style="font-weight: bold; font-size: 0.9em; margin-bottom: 0.2rem;">
+                                <span style="color: ${statusColor}">●</span> ${job.id} - ${job.url.substring(0, 40)}...
+                            </div>
+                            <div style="font-family: monospace; font-size: 0.8em; color: #8b949e;">
+                                ${job.message}
+                            </div>
+                        `;
+                        statusBox.appendChild(jobDiv);
+                    });
                 }
+
+                // We allow multiple downloads, so we don't disable the button unless maybe we hit a limit?
+                // For now, always enabled.
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start Download';
+
             } catch (e) {
                 console.error('Error fetching status:', e);
             }
