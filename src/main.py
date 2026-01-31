@@ -240,7 +240,25 @@ class DownloadManager:
             current_audio_prog = 0
             current_video_prog = 0
             
-            for line in process.stdout:
+            # Helper to read stream char by char/chunk to handle \r
+            def read_stream(stream):
+                buffer = ""
+                while True:
+                    # Read larger chunks for efficiency, but scan for \r
+                    chunk = stream.read(1) # Read 1 char at a time to be safe with blocking
+                    if not chunk:
+                        if buffer:
+                            yield buffer
+                        break
+                    
+                    if chunk == '\n' or chunk == '\r':
+                        if buffer.strip():
+                            yield buffer
+                        buffer = ""
+                    else:
+                        buffer += chunk
+            
+            for line in read_stream(process.stdout):
                 line = line.strip()
                 if not line:
                     continue
