@@ -11,6 +11,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aebndl-ui")
 
+# Filter out /status poll logs from uvicorn.access
+class EndpointFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.getMessage().find("GET /status") == -1
+
+# Apply filter to uvicorn access logger (if it exists yet, or when it does)
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+
 app = FastAPI()
 
 # Mount Static and Templates
@@ -168,7 +176,7 @@ class DownloadManager:
             # Add debug info to a metadata field if we wanted, but for now let's just log it
             # Or we could return a dict with metadata, but that breaks frontend array expectation
             # We'll rely on server logs for now.
-            logger.info(f"Status check: {len(self.active_jobs)} active, {len(self.queue)} in queue")
+            logger.debug(f"Status check: {len(self.active_jobs)} active, {len(self.queue)} in queue")
             return results
 
     def _worker_loop(self):
