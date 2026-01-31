@@ -15,7 +15,7 @@
     --header-text: #fff;
 }
 
-body.light-mode {
+html.light-mode {
     /* Light Mode Overrides */
     --bg-color: #f6f8fa;
     --card-bg: #ffffff;
