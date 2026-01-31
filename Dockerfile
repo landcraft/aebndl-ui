@@ -32,4 +32,4 @@ RUN mkdir -p /downloads
 EXPOSE 21345
 
 # Command to run the app
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "21345"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "21345", "--no-access-log"]

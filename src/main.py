@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import threading
 from fastapi import FastAPI, Request, Form, BackgroundTasks
@@ -10,14 +11,6 @@ import logging
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aebndl-ui")
-
-# Filter out /status poll logs from uvicorn.access
-class EndpointFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        return record.getMessage().find("GET /status") == -1
-
-# Apply filter to uvicorn access logger (if it exists yet, or when it does)
-logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
 app = FastAPI()
 
@@ -265,7 +258,6 @@ class DownloadManager:
                 job["process_obj"] = process
             
             # Parsing State
-            import re
             
             # Regex patterns
             re_filename = re.compile(r"Output file name:\s*(.*)")
@@ -302,6 +294,9 @@ class DownloadManager:
                 line = line.strip()
                 if not line:
                     continue
+                
+                # Log CLI output for debugging
+                logger.info(f"[{job_id}] CLI: {line}")
                 
                 # Phase 1: Setup / Scraping
                 if re_scraping.search(line):
@@ -375,9 +370,14 @@ class DownloadManager:
             
             with self.lock:
                 if process.returncode == 0:
-                    job["status"] = "completed"
-                    job["progress"] = 100
-                    job["message"] = "Download finished."
+                    if job["progress"] == 0:
+                         job["status"] = "failed"
+                         job["message"] = f"Finished with 0% progress. Check logs."
+                         logger.warning(f"Job {job_id} finished with 0% progress. CLI might have exited early.")
+                    else:
+                        job["status"] = "completed"
+                        job["progress"] = 100
+                        job["message"] = "Download finished."
                 else:
                     if job["status"] != "cancelled": 
                         job["status"] = "failed"
