@@ -120,6 +120,35 @@ class DownloadManager:
             if not old_job:
                 return None
             
+    def restart_job(self, job_id):
+        with self.lock:
+            # Look in history first, then active
+            old_job = self.history.get(job_id) or self.active_jobs.get(job_id)
+            
+            if not old_job:
+                return None
+            
+            # Remove the old job (Requirement: "remove the old one and add the new job")
+            if job_id in self.history:
+                del self.history[job_id]
+            elif job_id in self.active_jobs:
+                # If it's active/running, we should technically stop it first if it's running
+                # But "restart" usually implies it's done/failed.
+                # If user restarts a running job, we'll cancel it first.
+                # However, calling self.cancel_job here would require releasing lock or careful recursion.
+                # Simpler: Just remove it from active_jobs if it's there. 
+                # Note: If it had a process running, it becomes orphaned. 
+                # Best practice: terminate if running.
+                job = self.active_jobs[job_id]
+                if job.get("process_obj"):
+                    try:
+                        job["process_obj"].terminate()
+                    except:
+                        pass
+                del self.active_jobs[job_id]
+                if job_id in self.queue:
+                     self.queue.remove(job_id)
+            
             # Create new job with same params
             new_job_id = self.add_job(
                 old_job["url"],
