@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import subprocess
 import threading
 from fastapi import FastAPI, Request, Form, BackgroundTasks
@@ -38,8 +39,9 @@ class DownloadManager:
         self.queue = [] # List of job_ids waiting
         self.active_jobs = {} # ID -> Job Dict
         self.history = {} # ID -> Job Dict (completed/failed)
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.shutdown_event = threading.Event()
+        self.worker_threads = [] # Added for tracking worker threads
         
         # Start worker threads
         self.workers = []
@@ -119,14 +121,6 @@ class DownloadManager:
             if not old_job:
                 return None
             
-    def restart_job(self, job_id):
-        with self.lock:
-            # Look in history first, then active
-            old_job = self.history.get(job_id) or self.active_jobs.get(job_id)
-            
-            if not old_job:
-                return None
-            
             # Remove the old job (Requirement: "remove the old one and add the new job")
             if job_id in self.history:
                 del self.history[job_id]
@@ -165,9 +159,7 @@ class DownloadManager:
                 del self.history[job_id]
                 return True
             
-            # If in active, only delete if not running? 
-            # Or cancel and delete?
-            # Let's say we can only delete if it's not strictly "running" (queued is fine to cancel+delete)
+            # If in active, only delete if not strictly "running" (queued is fine to cancel+delete)
             # But simpler: Cancel then Delete.
             
             if job_id in self.active_jobs:
@@ -229,33 +221,45 @@ class DownloadManager:
 
     def _run_job(self, job_id):
         job = None
-        with self.lock:
-            if job_id in self.active_jobs:
-                job = self.active_jobs[job_id]
-                job["status"] = "running" # Initial running state
-                job["message"] = f"Starting download..."
-                job["progress"] = 0
-                job["title"] = None
-        
-        if not job:
-            return
-
-        cmd = ["python3", "-m", "aebn_dl.cli", job["url"]]
-        if job["threads"]: cmd.extend(["--threads", str(job["threads"])])
-        if job["resolution"]: cmd.extend(["--resolution", str(job["resolution"])])
-        if job["scene"]: cmd.extend(["--scene", str(job["scene"])])
-        if job["output_dir"]: cmd.extend(["--output_dir", job["output_dir"]])
-        
-        logger.info(f"[{job_id}] Running: {' '.join(cmd)}")
-        
+        job_work_dir = None # Initialize outside try block for finally access
         try:
+            with self.lock:
+                if job_id in self.active_jobs:
+                    job = self.active_jobs[job_id]
+                    job["status"] = "running" # Initial running state
+                    job["message"] = "Initializing..."
+                    job["progress"] = 0
+                    job["title"] = None
+            
+            if not job:
+                return
+
+            # Create isolated working directory
+            job_work_dir = os.path.join(PROJECT_ROOT, "temp", job_id)
+            os.makedirs(job_work_dir, exist_ok=True)
+            
+            cmd = ["python3", "-m", "aebn_dl.cli", job["url"]]
+            if job["threads"]: cmd.extend(["--threads", str(job["threads"])])
+            if job["resolution"]: cmd.extend(["--resolution", str(job["resolution"])])
+            if job["scene"]: cmd.extend(["--scene", str(job["scene"])])
+            if job["output_dir"]: cmd.extend(["--output_dir", job["output_dir"]])
+            
+            logger.info(f"[{job_id}] Running: {' '.join(cmd)}")
+            
             env = os.environ.copy()
             env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
             env["PYTHONUNBUFFERED"] = "1"
             
+            # Run the process in the ISOLATED working directory
             process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                env=env, cwd=PROJECT_ROOT, bufsize=1, universal_newlines=True
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                cwd=job_work_dir,  # Use isolated dir
+                env=env
             )
             
             with self.lock:
@@ -416,6 +420,13 @@ class DownloadManager:
                 with self.lock:
                     if job_id in self.active_jobs:
                          self.history[job_id] = self.active_jobs.pop(job_id)
+            
+            # Cleanup temp dir
+            if job_work_dir and os.path.exists(job_work_dir):
+                try:
+                    shutil.rmtree(job_work_dir)
+                except Exception as e:
+                    logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
 
 
 manager = DownloadManager(max_concurrent=2)
