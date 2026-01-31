@@ -196,8 +196,10 @@ class DownloadManager:
         with self.lock:
             if job_id in self.active_jobs:
                 job = self.active_jobs[job_id]
-                job["status"] = "running"
+                job["status"] = "running" # Initial running state
                 job["message"] = f"Starting download..."
+                job["progress"] = 0
+                job["title"] = None
         
         if not job:
             return
@@ -214,8 +216,6 @@ class DownloadManager:
         try:
             env = os.environ.copy()
             env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
-            
-            # Unbuffer output to get real-time logs
             env["PYTHONUNBUFFERED"] = "1"
             
             process = subprocess.Popen(
@@ -227,42 +227,66 @@ class DownloadManager:
                 job["pid"] = process.pid
                 job["process_obj"] = process
             
-            # Read output
-            last_info = "Starting..."
-            last_audio = ""
-            last_video = ""
-
+            # Parsing State
+            import re
+            
+            # Regex patterns
+            # Note: "Output file name: Brazzers - ..."
+            # Note: "Audio download: 182/915 20% ..."
+            re_filename = re.compile(r"Output file name:\s*(.*)")
+            re_audio = re.compile(r"Audio download:.*?\s+(\d+)%")
+            re_video = re.compile(r"Video download:.*?\s+(\d+)%")
+            
+            current_audio_cancel = 0
+            current_video_cancel = 0
+            
             for line in process.stdout:
                 line = line.strip()
                 if not line:
                     continue
                 
-                # Check line type and update state
-                if "Audio download:" in line:
-                    last_audio = line
-                elif "Video download:" in line:
-                    last_video = line
-                else:
-                    # Treat as general info/log
-                    last_info = line
-                    logger.debug(f"[{job_id}] STDOUT: {line}")
-                
-                # Combine messages
-                # Filter out empty strings
-                components = [s for s in [last_info, last_audio, last_video] if s]
-                combined_message = "\n".join(components)
+                # Check for Muxing/ffmpeg activity if the tool logs it
+                # Usually aebn_dl says "Muxing..." or internal ffmpeg logs
+                if "Muxing" in line or "Merging" in line:
+                    with self.lock:
+                        job["status"] = "muxing"
+                        job["message"] = line
 
+                # Parse Filename
+                m_name = re_filename.search(line)
+                if m_name:
+                    found_name = m_name.group(1).strip()
+                    with self.lock:
+                        job["title"] = found_name
+                        job["status"] = "downloading" # Confirmed downloading phase
+
+                # Parse Progress
+                m_audio = re_audio.search(line)
+                if m_audio:
+                    current_audio_cancel = int(m_audio.group(1))
+                
+                m_video = re_video.search(line)
+                if m_video:
+                    current_video_cancel = int(m_video.group(1))
+                
+                # Calculate Combined Progress
+                # If both actve, avg. If only one? Usually both start together.
+                # Let's simple average if both > 0, else take max?
+                # Actually if Video is 0% and Audio 20%, average is 10%. Correct.
+                avg_progress = int((current_audio_cancel + current_video_cancel) / 2)
+                
                 with self.lock:
-                    job["message"] = combined_message
-            
+                    job["progress"] = avg_progress
+                    job["message"] = line # Keep raw line for debug/details if needed
+
             process.wait()
             
             with self.lock:
                 if process.returncode == 0:
                     job["status"] = "completed"
+                    job["progress"] = 100
                     job["message"] = "Download finished."
                 else:
-                    # Check if it was cancelled intentionally (signal)
                     if job["status"] != "cancelled": 
                         job["status"] = "failed"
                         job["message"] = f"Failed (Exit Code: {process.returncode})"
@@ -277,20 +301,15 @@ class DownloadManager:
                 job["process_obj"] = None
                 job["pid"] = None
                 
-            # Post-processing: Requirement "Once completed, removed... unless error"
-            # We keep it in active_jobs for a few seconds so UI can show "Completed", then move to history.
+            # Post-processing
             if job["status"] == "completed" or job["status"] == "cancelled":
                 import time
-                time.sleep(5) # Valid because we are in a worker thread
+                time.sleep(5) 
                 with self.lock:
                     if job_id in self.active_jobs:
                         self.history[job_id] = self.active_jobs.pop(job_id)
 
             else:
-                # Failed/Error: Keep in active_jobs (or move to history but keep serving it)
-                # Let's move to history to keep active_jobs clean explicitly?
-                # If we keep it in active_jobs, it will show in the list.
-                # But it doesn't take up a thread anymore.
                 with self.lock:
                     if job_id in self.active_jobs:
                          self.history[job_id] = self.active_jobs.pop(job_id)

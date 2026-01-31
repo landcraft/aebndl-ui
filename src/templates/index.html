@@ -20,61 +20,75 @@
             <h2>Advanced Job Manager</h2>
         </header>
 
-        <div class="main-grid">
-            <!-- Left Column: New Download -->
-            <section>
-                <div class="card">
-                    <div class="card-header">New Download</div>
-                    <form id="download-form">
-                        <div class="input-group">
+        <!-- Layout: Vertical Stack -->
+        <div class="layout-stack">
+            <!-- Section 1: New Download -->
+            <section class="card">
+                <div class="card-header">New Download</div>
+                <form id="download-form">
+                    <div class="form-row">
+                        <div class="input-group" style="flex: 3;">
                             <label for="url">Video URL</label>
                             <input type="text" id="url" name="url" placeholder="https://aebn.net/..." required>
                         </div>
 
-                        <div class="input-group">
+                        <div class="input-group" style="flex: 1;">
                             <label for="threads">Threads</label>
                             <input type="number" id="threads" name="threads" value="10" min="1" max="20">
                         </div>
 
-                        <div class="input-group">
-                            <label for="resolution">Target Resolution</label>
+                        <div class="input-group" style="flex: 1;">
+                            <label for="resolution">Resolution</label>
                             <select id="resolution" name="resolution">
-                                <option value="2160">4K (2160p)</option>
+                                <option value="2160">4K</option>
                                 <option value="1440">1440p</option>
                                 <option value="1080">1080p</option>
                                 <option value="720" selected>720p</option>
                                 <option value="480">480p</option>
-                                <option value="360">360p</option>
-                                <option value="240">240p</option>
                             </select>
                         </div>
 
-                        <div class="input-group">
-                            <label for="scene">Scene Index (Optional)</label>
+                        <div class="input-group" style="flex: 1;">
+                            <label for="scene">Scene (Opt)</label>
                             <input type="number" id="scene" name="scene" placeholder="1">
                         </div>
 
-                        <button type="submit" id="start-btn" class="btn">Queue Download</button>
-                    </form>
-                </div>
-
-                <div class="system-info">
-                    <p>Core Version: <span id="sys-version">...</span></p>
-                    <p>Last Update: <span id="sys-date">...</span></p>
-                    <p style="margin-top: 0.5rem;"><a href="https://github.com/landcraft/aebndl-ui" target="_blank"
-                            class="repo-link">View Project on GitHub</a></p>
-                </div>
-            </section>
-
-            <!-- Right Column: Job List -->
-            <section>
-                <div class="card">
-                    <div class="card-header">Job Queue & History</div>
-                    <div id="job-list" class="job-list">
-                        <div class="empty-state">Loading jobs...</div>
+                        <div class="input-group" style="flex: 0 0 auto; align-self: flex-end;">
+                            <button type="submit" id="start-btn" class="btn">Queue</button>
+                        </div>
                     </div>
+                </form>
+            </section>
+
+            <!-- Section 2: Status Table -->
+            <section class="card">
+                <div class="card-header">Job Status</div>
+                <div class="table-responsive">
+                    <table class="status-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 15%">Status</th>
+                                <th style="width: 40%">Name / URL</th>
+                                <th style="width: 30%">Progress</th>
+                                <th style="width: 15%">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="job-table-body">
+                            <tr>
+                                <td colspan="4" class="empty-state">No active jobs</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </section>
+
+            <!-- Section 3: Footer -->
+            <div class="system-info">
+                <p>Core Version: <span id="sys-version">...</span></p>
+                <p>Last Update: <span id="sys-date">...</span></p>
+                <p style="margin-top: 0.5rem;"><a href="https://github.com/landcraft/aebndl-ui" target="_blank"
+                        class="repo-link">View Project on GitHub</a></p>
+            </div>
         </div>
     </div>
 
@@ -84,7 +98,7 @@
             e.preventDefault();
             const btn = document.getElementById('start-btn');
             btn.disabled = true;
-            btn.textContent = 'Queueing...';
+            btn.textContent = '...';
 
             const formData = new FormData(e.target);
             try {
@@ -92,15 +106,13 @@
                     method: 'POST',
                     body: formData
                 });
-                const data = await response.json();
-                // We rely on polling to show the new job
-                // Reset form URL but keep settings
+                await response.json();
                 document.getElementById('url').value = '';
             } catch (error) {
-                alert('Error starting download: ' + error);
+                alert('Error: ' + error);
             } finally {
                 btn.disabled = false;
-                btn.textContent = 'Queue Download';
+                btn.textContent = 'Queue';
             }
         });
 
@@ -111,102 +123,91 @@
                 const jobs = await response.json();
                 renderJobs(jobs);
             } catch (e) {
-                console.error('Error fetching status:', e);
+                console.error('Error:', e);
             }
         }, 1000);
 
         function renderJobs(jobs) {
-            const list = document.getElementById('job-list');
+            const tbody = document.getElementById('job-table-body');
 
             if (jobs.length === 0) {
-                list.innerHTML = '<div class="empty-state">No active or recent jobs</div>';
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No active or recent jobs</td></tr>';
                 return;
             }
 
-            // Simple diffing logic: completely re-render for now to be safe
-            list.innerHTML = '';
+            tbody.innerHTML = '';
 
-            // Backend returns active + history.
-            // We want newest history at top OR active at top?
-            // Let's assume backend returns "active" values first then "history".
-            // If we reverse, we get History (oldest->newest) then Active(oldest->newest) reversed -> active newest first?
-            // Actually let's just display them.
-            // "Active" jobs are in a dict, order is insertion order usually (py3.7+). History is insertion order.
-            // manager.get_status returns active.values() + history.values().
-            // So Pending -> Running -> Completed/Old
-
-            // To show "Newest Added" at top, we might want to sort by ID or creation time if we had it.
-            // But preserving backend order reversed (Newest added at bottom -> Top) is usually okay for queue.
-            // Actually queue is FIFO.
-            // Pending jobs are at top of queue list.
-            // If we iterate array, first item is first in queue.
-            // We probably want to see the "Active/First in Queue" at the top.
-            // So we should NOT reverse if the list is [Head ...... Tail].
-            // BUT: `history` is appended. So history items are at the end.
-            // If we have [Active1, Active2, History1, History2], reversed is [H2, H1, A2, A1].
-            // This puts history at top. That's annoying if we want to see active progress.
-            // Let's separate them?
-            // Or just sort by status priority: Running > Queued > Completed/Failed.
-
-            const running = jobs.filter(j => j.status === 'running');
+            // Sort: Running > Queued > History
+            const running = jobs.filter(j => ['running', 'downloading', 'muxing'].includes(j.status));
             const queued = jobs.filter(j => j.status === 'queued');
-            const history = jobs.filter(j => !['running', 'queued'].includes(j.status));
+            const history = jobs.filter(j => !['running', 'downloading', 'muxing', 'queued'].includes(j.status));
 
-            // Display order: Running, then Queued (in order), then History (newest first)
             const displayJobs = [
                 ...running,
                 ...queued,
-                ...history.reverse() // show latest completed first
+                ...history.reverse()
             ];
 
             displayJobs.forEach(job => {
-                const card = document.createElement('div');
-                card.className = 'job-card';
-                if (job.status === 'running') card.style.borderColor = '#d29922'; // slight highlight
+                const tr = document.createElement('tr');
 
-                // Action Buttons
-                let actions = '';
-                if (job.status === 'running' || job.status === 'queued') {
-                    actions += `<button onclick="stopJob('${job.id}')" class="btn-sm btn-stop" title="Stop">Stop</button>`;
-                } else {
-                    // Completed / Failed / Cancelled
-                    actions += `<button onclick="restartJob('${job.id}')" class="btn-sm btn-restart" title="Restart">Rerun</button>`;
-                    actions += `<button onclick="deleteJob('${job.id}')" class="btn-sm btn-delete" title="Delete">✕</button>`;
+                // Status Badge
+                let badgeClass = 'badge-default';
+                if (['running', 'downloading'].includes(job.status)) badgeClass = 'badge-running';
+                else if (job.status === 'muxing') badgeClass = 'badge-muxing';
+                else if (job.status === 'completed') badgeClass = 'badge-success';
+                else if (job.status === 'failed' || job.status === 'error') badgeClass = 'badge-error';
+                else if (job.status === 'queued') badgeClass = 'badge-queued';
+
+                // Progress Bar
+                const progress = job.progress || 0;
+                let progressHtml = `
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: ${progress}%"></div>
+                        <span class="progress-text">${progress}%</span>
+                    </div>
+                `;
+                if (job.status === 'error' || job.status === 'failed') {
+                    progressHtml = `<span class="error-text">${job.message}</span>`;
+                } else if (job.status === 'queued') {
+                    progressHtml = `<span class="queued-text">Waiting...</span>`;
                 }
 
-                const badgeClass = job.status.toLowerCase();
+                // Actions
+                let actions = '';
+                if (['running', 'downloading', 'muxing', 'queued'].includes(job.status)) {
+                    actions = `<button onclick="stopJob('${job.id}')" class="btn-sm btn-stop">Stop</button>`;
+                } else {
+                    actions = `
+                        <button onclick="restartJob('${job.id}')" class="btn-sm btn-restart">Restart</button>
+                        <button onclick="deleteJob('${job.id}')" class="btn-sm btn-delete">Remove</button>
+                    `;
+                }
 
-                card.innerHTML = `
-                    <div class="job-header">
-                        <div>
-                            <span class="badge ${badgeClass}">${job.status}</span>
-                            <span class="job-id">#${job.id}</span>
-                        </div>
-                        <div>${actions}</div>
-                    </div>
-                    <span class="job-url" title="${job.url}">${job.url}</span>
-                    <div class="job-status-line">
-                         <!-- Could add progress bar here if we parsed percent -->
-                    </div>
-                    <div class="job-message">${job.message}</div>
+                const displayName = job.title ? job.title : job.url;
+
+                tr.innerHTML = `
+                    <td><span class="badge ${badgeClass}">${job.status.toUpperCase()}</span></td>
+                    <td><div class="job-name" title="${job.url}">${displayName}</div></td>
+                    <td>${progressHtml}</td>
+                    <td>${actions}</td>
                 `;
-                list.appendChild(card);
+                tbody.appendChild(tr);
             });
         }
 
         // Actions
         async function stopJob(id) {
-            if (!confirm('Stop this download?')) return;
+            if (!confirm('Stop?')) return;
             await fetch(`/cancel/${id}`, { method: 'POST' });
         }
 
         async function restartJob(id) {
-            if (!confirm('Restart this job as a new download?')) return;
+            if (!confirm('Restart?')) return;
             await fetch(`/restart/${id}`, { method: 'POST' });
         }
 
         async function deleteJob(id) {
-            if (!confirm('Remove this job from history?')) return;
             await fetch(`/delete/${id}`, { method: 'DELETE' });
         }
 
