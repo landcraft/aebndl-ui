@@ -53,7 +53,7 @@ class DownloadManager:
             "scene": scene,
             "output_dir": output_dir,
             "status": "queued",
-            "message": "Queued for download...",
+            "message": "Queued (Waiting for available download slot...)",
             "pid": None,
             "process_obj": None, # To allow termination
             "start_time": None,
@@ -163,22 +163,33 @@ class DownloadManager:
         with self.lock:
             all_jobs = list(self.active_jobs.values()) + list(self.history.values())
             # Return sanitized copies
-            return [self._sanitize_job(j) for j in all_jobs]
+            results = [self._sanitize_job(j) for j in all_jobs]
+            
+            # Add debug info to a metadata field if we wanted, but for now let's just log it
+            # Or we could return a dict with metadata, but that breaks frontend array expectation
+            # We'll rely on server logs for now.
+            logger.info(f"Status check: {len(self.active_jobs)} active, {len(self.queue)} in queue")
+            return results
 
     def _worker_loop(self):
+        thread_name = threading.current_thread().name
+        logger.info(f"Worker {thread_name} started")
         while not self.shutdown_event.is_set():
             job_id = None
             
             with self.lock:
                 if self.queue:
                     job_id = self.queue.pop(0)
+                    logger.info(f"Worker {thread_name} popped job {job_id} from queue. Queue length now: {len(self.queue)}")
             
             if not job_id:
                 threading.Event().wait(1) # Sleep a bit
                 continue
                 
             # Process Job
+            logger.info(f"Worker {thread_name} processing job {job_id}")
             self._run_job(job_id)
+            logger.info(f"Worker {thread_name} finished job {job_id}")
 
     def _run_job(self, job_id):
         job = None
@@ -204,9 +215,12 @@ class DownloadManager:
             env = os.environ.copy()
             env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
             
+            # Unbuffer output to get real-time logs
+            env["PYTHONUNBUFFERED"] = "1"
+            
             process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                env=env, cwd=PROJECT_ROOT
+                env=env, cwd=PROJECT_ROOT, bufsize=1, universal_newlines=True
             )
             
             with self.lock:
@@ -217,6 +231,7 @@ class DownloadManager:
             for line in process.stdout:
                 line = line.strip()
                 if line:
+                    logger.debug(f"[{job_id}] STDOUT: {line}")
                     with self.lock:
                         job["message"] = line
             
@@ -250,17 +265,12 @@ class DownloadManager:
                 with self.lock:
                     if job_id in self.active_jobs:
                         self.history[job_id] = self.active_jobs.pop(job_id)
-                        # And remove from history immediately? Or keep in internal history but UI ignores?
-                        # Using a separate "cleanup" might be better but this is simple.
-                        # actually we essentially want to "forget" it.
-                        # self.history.pop(job_id, None) 
-                        
+
             else:
                 # Failed/Error: Keep in active_jobs (or move to history but keep serving it)
-                # Let's move to history to keep active_jobs clean for "Limit 2" logic? 
-                # Actually, concurrency limit is based on `workers` or `active_jobs`?
-                # The _worker_loop pulls from queue. "Active" in specific sense means "Holding a thread".
-                # Once _run_job returns, the thread is free. Use active_jobs for UI status.
+                # Let's move to history to keep active_jobs clean explicitly?
+                # If we keep it in active_jobs, it will show in the list.
+                # But it doesn't take up a thread anymore.
                 with self.lock:
                     if job_id in self.active_jobs:
                          self.history[job_id] = self.active_jobs.pop(job_id)
