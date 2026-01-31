@@ -321,6 +321,12 @@ class DownloadManager:
                     found_name = m_name.group(1).strip()
                     with self.lock:
                         job["title"] = found_name
+                        
+                        # Extract actual resolution from filename (e.g., "Movie 720p.mp4")
+                        m_res = re.search(r"(\d{3,4}p)", found_name)
+                        if m_res:
+                            job["resolution"] = m_res.group(1)
+
                         # If we found name, we are likely past scraping or close to it
                         if job["status"] == "scraping":
                              job["status"] = "downloading" 
