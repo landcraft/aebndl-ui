@@ -104,6 +104,61 @@ class DownloadManager:
         safe_job.pop("process_obj", None)
         return safe_job
 
+    def restart_job(self, job_id):
+        with self.lock:
+            # Look in history first, then active (though restarting active is weird, maybe just copy params)
+            old_job = self.history.get(job_id) or self.active_jobs.get(job_id)
+            
+            if not old_job:
+                return None
+            
+            # Create new job with same params
+            new_job_id = self.add_job(
+                old_job["url"],
+                old_job["threads"],
+                old_job["resolution"],
+                old_job["scene"],
+                old_job["output_dir"]
+            )
+            return new_job_id
+
+    def delete_job(self, job_id):
+        with self.lock:
+            # Check history first
+            if job_id in self.history:
+                del self.history[job_id]
+                return True
+            
+            # If in active, only delete if not running? 
+            # Or cancel and delete?
+            # Let's say we can only delete if it's not strictly "running" (queued is fine to cancel+delete)
+            # But simpler: Cancel then Delete.
+            
+            if job_id in self.active_jobs:
+                # If running, try to cancel first
+                self.cancel_job(job_id)
+                # It might take a moment to move to history.
+                # But `cancel_job` returns True if it initiated cancel.
+                # We can force remove from queue if it was queued.
+                # If it was running, it moves to history eventually.
+                # For UI responsiveness, let's just trigger cancel. User can click delete again if it persists?
+                # Or we can just let `cancel_job` handle the cleanup.
+                
+                # Implementation Detail: `cancel_job` already moves queued jobs to history.
+                # Running jobs stay active until process exits.
+                # So `delete_job` should mainly be for History items.
+                # If user tries to delete a running job, we should probably Cancel it first.
+                
+                # Let's just return False if it's active/running, telling user to "Stop" first?
+                # Or auto-stop.
+                
+                # Requirement: "Delete a job"
+                # Let's try to cancel it, then allow deletion from history.
+                self.cancel_job(job_id)
+                return True # It will be effectively "deleted" or "cancelling"
+                
+            return False
+
     def get_status(self):
         with self.lock:
             all_jobs = list(self.active_jobs.values()) + list(self.history.values())
@@ -197,8 +252,9 @@ class DownloadManager:
                         self.history[job_id] = self.active_jobs.pop(job_id)
                         # And remove from history immediately? Or keep in internal history but UI ignores?
                         # Using a separate "cleanup" might be better but this is simple.
-                        # Actually we essentially want to "forget" it.
-                        self.history.pop(job_id, None) 
+                        # actually we essentially want to "forget" it.
+                        # self.history.pop(job_id, None) 
+                        
             else:
                 # Failed/Error: Keep in active_jobs (or move to history but keep serving it)
                 # Let's move to history to keep active_jobs clean for "Limit 2" logic? 
@@ -234,6 +290,18 @@ async def download(
 @app.post("/cancel/{job_id}")
 async def cancel(job_id: str):
     success = manager.cancel_job(job_id)
+    return {"success": success}
+
+@app.post("/restart/{job_id}")
+async def restart(job_id: str):
+    new_id = manager.restart_job(job_id)
+    if new_id:
+        return {"success": True, "new_job_id": new_id}
+    return {"success": False, "message": "Job not found"}
+
+@app.delete("/delete/{job_id}")
+async def delete(job_id: str):
+    success = manager.delete_job(job_id)
     return {"success": success}
 
 @app.get("/status")

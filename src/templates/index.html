@@ -4,146 +4,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>aebndl-ui</title>
-    <!-- Google Fonts -->
+    <title>AEBN VOD Downloader</title>
+    <link rel="stylesheet" href="/static/styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script>
-        // Simple polling for status
-        setInterval(async () => {
-            try {
-                const response = await fetch('/status');
-                const jobs = await response.json();
-                const statusBox = document.getElementById('status-content');
-                const startBtn = document.getElementById('start-btn');
-
-                // Clear current list
-                statusBox.innerHTML = '';
-
-                if (jobs.length === 0) {
-                    statusBox.innerHTML = '<div style="color: grey">Idle</div>';
-                } else {
-                    jobs.reverse().forEach(job => {
-                        const jobDiv = document.createElement('div');
-                        jobDiv.style.marginBottom = '1rem';
-                        jobDiv.style.paddingBottom = '0.5rem';
-                        jobDiv.style.borderBottom = '1px solid #30363d';
-
-                        let statusColor = '#8b949e';
-                        if (job.status === 'running') statusColor = '#d29922'; // yellow
-                        if (job.status === 'queued') statusColor = '#2188ff'; // blue
-                        if (job.status === 'completed') statusColor = '#238636'; // green
-                        if (job.status === 'failed' || job.status === 'error') statusColor = '#da3633'; // red
-                        if (job.status === 'cancelled') statusColor = '#6e7681'; // grey
-
-                        // Cancel Button Logic
-                        let actionButtons = '';
-                        if (job.status === 'running' || job.status === 'queued') {
-                            actionButtons = `<button onclick="cancelJob('${job.id}')" style="background:none; border:none; color: #da3633; cursor:pointer; float:right;">✕</button>`;
-                        }
-
-                        jobDiv.innerHTML = `
-                            <div style="font-weight: bold; font-size: 0.9em; margin-bottom: 0.2rem;">
-                                <span style="color: ${statusColor}">●</span> ${job.id} - ${job.url.substring(0, 40)}...
-                                ${actionButtons}
-                            </div>
-                            <div style="font-family: monospace; font-size: 0.8em; color: #8b949e;">
-                                [${job.status.toUpperCase()}] ${job.message}
-                            </div>
-                        `;
-                        statusBox.appendChild(jobDiv);
-                    });
-                }
-
-                // We allow multiple downloads, so we don't disable the button unless maybe we hit a limit?
-                // For now, always enabled.
-                startBtn.disabled = false;
-                startBtn.textContent = 'Queue Download';
-
-            } catch (e) {
-                console.error('Error fetching status:', e);
-            }
-        }, 1000);
-
-        async function cancelJob(jobId) {
-            if (!confirm('Stop this download?')) return;
-            try {
-                const response = await fetch(`/cancel/${jobId}`, { method: 'POST' });
-                const res = await response.json();
-                if (res.success) {
-                    // Update immediate UI or wait for poll
-                }
-            } catch (e) {
-                alert('Failed to cancel');
-            }
-        }
-
-        // Fetch System Info on load
-        window.addEventListener('load', async () => {
-            try {
-                const response = await fetch('/system-info');
-                const data = await response.json();
-                document.getElementById('sys-version').textContent = data.version;
-                document.getElementById('sys-date').textContent = data.date;
-            } catch (e) {
-                console.error(e);
-            }
-        });
-    </script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap"
+        rel="stylesheet">
 </head>
 
 <body>
     <div class="container">
-        <div class="card">
-            <h1>aebndl-ui</h1>
-            <h2>High-Performance VOD Downloader</h2>
+        <div class="input-group">
+            <label for="url">URL </label>
+            <input type="text" id="url" name="url" placeholder="https://..." required>
+        </div>
 
-            <form id="download-form" action="/download" method="post" onsubmit="event.preventDefault(); submitForm();">
-                <div class="input-group">
-                    <label for="url">URL </label>
-                    <input type="text" id="url" name="url" placeholder="https://..." required>
-                </div>
+        <div class="input-group">
+            <label for="resolution">Resolution</label>
+            <select id="resolution" name="resolution">
+                <option value="0">Best Available</option>
+                <option value="2160">4K (2160p)</option>
+                <option value="1080">1080p</option>
+                <option value="720" selected>720p</option>
+                <option value="480">480p</option>
+                <option value="240">240p</option>
+            </select>
+        </div>
 
-                <div class="input-group">
-                    <label for="resolution">Resolution</label>
-                    <select id="resolution" name="resolution">
-                        <option value="0">Best Available</option>
-                        <option value="2160">4K (2160p)</option>
-                        <option value="1080">1080p</option>
-                        <option value="720" selected>720p</option>
-                        <option value="480">480p</option>
-                        <option value="240">240p</option>
-                    </select>
-                </div>
-
-                <div style="display: flex; gap: 1rem;">
-                    <div class="input-group" style="flex: 1;">
-                        <label for="threads">Threads</label>
-                        <input type="number" id="threads" name="threads" value="5" min="1" max="50">
-                    </div>
-
-                    <div class="input-group" style="flex: 1;">
-                        <label for="scene">Scene Index (Optional)</label>
-                        <input type="number" id="scene" name="scene" placeholder="All">
-                    </div>
-                </div>
-
-                <button type="submit" id="start-btn" class="btn">Start Download</button>
-            </form>
-
-            <div class="status-box">
-                <div>Status:</div>
-                <div id="status-content">Idle</div>
+        <div style="display: flex; gap: 1rem;">
+            <div class="input-group" style="flex: 1;">
+                <label for="threads">Threads</label>
+                <input type="number" id="threads" name="threads" value="5" min="1" max="50">
             </div>
 
-            <div class="system-info">
-                Downloader Core Version: <span id="sys-version">Loading...</span> | Last Updated: <span
-                    id="sys-date">Loading...</span>
+            <div class="input-group" style="flex: 1;">
+                <label for="scene">Scene Index (Optional)</label>
+                <input type="number" id="scene" name="scene" placeholder="All">
             </div>
         </div>
+
+        <button type="submit" id="start-btn" class="btn">Start Download</button>
+        </form>
+
+        <div class="status-box">
+            <div>Status:</div>
+            <div id="status-content">Idle</div>
+        </div>
+
+        <div class="system-info">
+            Downloader Core Version: <span id="sys-version">Loading...</span> | Last Updated: <span
+                id="sys-date">Loading...</span>
+        </div>
+    </div>
     </div>
 
     <script>
