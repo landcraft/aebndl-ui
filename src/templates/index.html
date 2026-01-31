@@ -34,15 +34,24 @@
 
                         let statusColor = '#8b949e';
                         if (job.status === 'running') statusColor = '#d29922'; // yellow
+                        if (job.status === 'queued') statusColor = '#2188ff'; // blue
                         if (job.status === 'completed') statusColor = '#238636'; // green
                         if (job.status === 'failed' || job.status === 'error') statusColor = '#da3633'; // red
+                        if (job.status === 'cancelled') statusColor = '#6e7681'; // grey
+
+                        // Cancel Button Logic
+                        let actionButtons = '';
+                        if (job.status === 'running' || job.status === 'queued') {
+                            actionButtons = `<button onclick="cancelJob('${job.id}')" style="background:none; border:none; color: #da3633; cursor:pointer; float:right;">✕</button>`;
+                        }
 
                         jobDiv.innerHTML = `
                             <div style="font-weight: bold; font-size: 0.9em; margin-bottom: 0.2rem;">
                                 <span style="color: ${statusColor}">●</span> ${job.id} - ${job.url.substring(0, 40)}...
+                                ${actionButtons}
                             </div>
                             <div style="font-family: monospace; font-size: 0.8em; color: #8b949e;">
-                                ${job.message}
+                                [${job.status.toUpperCase()}] ${job.message}
                             </div>
                         `;
                         statusBox.appendChild(jobDiv);
@@ -52,12 +61,25 @@
                 // We allow multiple downloads, so we don't disable the button unless maybe we hit a limit?
                 // For now, always enabled.
                 startBtn.disabled = false;
-                startBtn.textContent = 'Start Download';
+                startBtn.textContent = 'Queue Download';
 
             } catch (e) {
                 console.error('Error fetching status:', e);
             }
         }, 1000);
+
+        async function cancelJob(jobId) {
+            if (!confirm('Stop this download?')) return;
+            try {
+                const response = await fetch(`/cancel/${jobId}`, { method: 'POST' });
+                const res = await response.json();
+                if (res.success) {
+                    // Update immediate UI or wait for poll
+                }
+            } catch (e) {
+                alert('Failed to cancel');
+            }
+        }
 
         // Fetch System Info on load
         window.addEventListener('load', async () => {
