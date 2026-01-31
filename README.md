@@ -15,7 +15,6 @@ A high-performance, containerized Web UI for the [aebn-vod-downloader](https://g
 Create a `compose.yaml` file:
 
 ```yaml
-version: '3.8'
 services:
   aebndl-ui:
     image: ghcr.io/landcraft/aebndl-ui:latest
@@ -25,7 +24,7 @@ services:
     volumes:
       - ./downloads:/downloads
     environment:
-      - DOWNLOAD_DIR=/downloads
+      DOWNLOAD_DIR: '/downloads'
     restart: unless-stopped
 ```
 
