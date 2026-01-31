@@ -1,0 +1,9 @@
+manifest.json
+source/
+backups/
+downloads/
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+env/
