@@ -232,25 +232,27 @@ class DownloadManager:
             
             # Regex patterns
             # Note: "Output file name: Brazzers - ..."
-            # Note: "Audio download: 182/915 20% ..."
             re_filename = re.compile(r"Output file name:\s*(.*)")
-            re_audio = re.compile(r"Audio download:.*?\s+(\d+)%")
-            re_video = re.compile(r"Video download:.*?\s+(\d+)%")
+            re_audio = re.compile(r"Audio download:.*?(\d+)%")
+            re_video = re.compile(r"Video download:.*?(\d+)%")
+            re_merging = re.compile(r"Merging (?:video|audio) segments.*?(\d+)%")
             
-            current_audio_cancel = 0
-            current_video_cancel = 0
+            current_audio_prog = 0
+            current_video_prog = 0
             
             for line in process.stdout:
                 line = line.strip()
                 if not line:
                     continue
                 
-                # Check for Muxing/ffmpeg activity if the tool logs it
-                # Usually aebn_dl says "Muxing..." or internal ffmpeg logs
-                if "Muxing" in line or "Merging" in line:
+                # Check for Muxing/Merging activity
+                # "Merging video segments..." or "Muxing streams with ffmpeg"
+                if "Muxing streams" in line or "Muxing success" in line:
                     with self.lock:
                         job["status"] = "muxing"
                         job["message"] = line
+                        if "Muxing success" in line:
+                            job["progress"] = 99 # almost done
 
                 # Parse Filename
                 m_name = re_filename.search(line)
@@ -258,26 +260,36 @@ class DownloadManager:
                     found_name = m_name.group(1).strip()
                     with self.lock:
                         job["title"] = found_name
-                        job["status"] = "downloading" # Confirmed downloading phase
+                        job["status"] = "downloading" 
 
-                # Parse Progress
+                # Parse Progress (Download)
                 m_audio = re_audio.search(line)
                 if m_audio:
-                    current_audio_cancel = int(m_audio.group(1))
+                    current_audio_prog = int(m_audio.group(1))
                 
                 m_video = re_video.search(line)
                 if m_video:
-                    current_video_cancel = int(m_video.group(1))
-                
-                # Calculate Combined Progress
-                # If both actve, avg. If only one? Usually both start together.
-                # Let's simple average if both > 0, else take max?
-                # Actually if Video is 0% and Audio 20%, average is 10%. Correct.
-                avg_progress = int((current_audio_cancel + current_video_cancel) / 2)
-                
-                with self.lock:
-                    job["progress"] = avg_progress
-                    job["message"] = line # Keep raw line for debug/details if needed
+                    current_video_prog = int(m_video.group(1))
+                    
+                # Parse Progress (Merging)
+                m_merge = re_merging.search(line)
+                if m_merge:
+                    with self.lock:
+                        job["status"] = "muxing"
+                        job["message"] = line
+                        # Merging is the final step before muxing, usually happens after download
+                        # We can just show the merge % or keep it at 100% download?
+                        # Let's show the merge % as the progress if we are in that phase? 
+                        # Or simpler: if merging, just say 90%+. 
+                        # Actually the screenshot shows "Merging ... 96%". Let's use that.
+                        job["progress"] = int(m_merge.group(1))
+
+                # Calculate Combined Download Progress if NOT unknown/merging
+                if job["status"] == "downloading":
+                    avg_progress = int((current_audio_prog + current_video_prog) / 2)
+                    with self.lock:
+                        job["progress"] = avg_progress
+                        job["message"] = line # Keep raw line for debug/details if needed
 
             process.wait()
             
