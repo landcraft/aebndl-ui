@@ -112,20 +112,41 @@
             themeIcon.innerHTML = isLight ? sunIcon : moonIcon;
         }
 
-        // Load Saved Theme
+        // Load Saved Theme or System Preference
         const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light') {
-            body.classList.add('light-mode');
-            setIcon(true);
-        } else {
-            setIcon(false);
+        const systemPrefersLight = window.matchMedia('(prefers-color-scheme: light)');
+
+        function applyTheme(isLight) {
+            if (isLight) {
+                body.classList.add('light-mode');
+                setIcon(true);
+            } else {
+                body.classList.remove('light-mode');
+                setIcon(false);
+            }
         }
 
+        // Initialize
+        if (savedTheme) {
+            applyTheme(savedTheme === 'light');
+        } else {
+            applyTheme(systemPrefersLight.matches);
+        }
+
+        // Listen for system changes (only if no manual override)
+        systemPrefersLight.addEventListener('change', (e) => {
+            if (!localStorage.getItem('theme')) {
+                applyTheme(e.matches);
+            }
+        });
+
+        // Toggle Button
         themeToggle.addEventListener('click', () => {
-            body.classList.toggle('light-mode');
-            const isLight = body.classList.contains('light-mode');
-            setIcon(isLight);
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            const isLightCurrently = body.classList.contains('light-mode');
+            const newIsLight = !isLightCurrently;
+
+            applyTheme(newIsLight);
+            localStorage.setItem('theme', newIsLight ? 'light' : 'dark');
         });
 
         // Form Submission
