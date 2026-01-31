@@ -5,7 +5,7 @@ import threading
 from fastapi import FastAPI, Request, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import logging
 
 # Configure Logging
@@ -19,6 +19,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Note: In docker, we might need to adjust paths, but for now assuming src structure
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    if os.path.exists(os.path.join(BASE_DIR, "static", "favicon.svg")):
+        return FileResponse(os.path.join(BASE_DIR, "static", "favicon.svg"))
+    return JSONResponse(content={}, status_code=404)
 
 # Determine Source Path (for System Info)
 # Assuming 'source' is at the root of the project, one level up from 'src'
