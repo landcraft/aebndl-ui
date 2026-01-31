@@ -56,11 +56,11 @@ if [ -z "$LATEST_SHA" ]; then
     fi
 fi
 
-if [ "$LATEST_SHA" == "$CURRENT_SHA" ]; then
-    echo "Source is up to date (SHA: $LATEST_SHA). Using cached version."
+if [ "$LATEST_SHA" == "$CURRENT_SHA" ] && [ -d "$SOURCE_DIR" ] && [ "$(ls -A $SOURCE_DIR)" ]; then
+    echo "Source is up to date (SHA: $LATEST_SHA) and present. Using cached version."
     exit 0
 else
-    echo "New version detected (Old: $CURRENT_SHA, New: $LATEST_SHA)."
+    echo "Update required (New SHA: $LATEST_SHA, Current: $CURRENT_SHA) or Source missing."
     echo "Updating source..."
     
     # Clean source dir
