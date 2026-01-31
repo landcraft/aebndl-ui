@@ -98,15 +98,17 @@ class DownloadManager:
                 
         return False
 
+    def _sanitize_job(self, job):
+        # Create a copy and remove non-serializable fields
+        safe_job = job.copy()
+        safe_job.pop("process_obj", None)
+        return safe_job
+
     def get_status(self):
         with self.lock:
-            # Combine active and history for now, but filter?
-            # Requirement: "Once a download is completed ... removed from status window ... unless it errors"
-            # So return active_jobs + failed history. 
-            # We also need completed/cancelled history for a short duration so the UI can show "Completed" before vanishing.
-            
             all_jobs = list(self.active_jobs.values()) + list(self.history.values())
-            return all_jobs
+            # Return sanitized copies
+            return [self._sanitize_job(j) for j in all_jobs]
 
     def _worker_loop(self):
         while not self.shutdown_event.is_set():
