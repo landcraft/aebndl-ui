@@ -136,23 +136,35 @@ h2 {
 
 /* Width Adjustments */
 .status-table th:nth-child(1) {
-    width: 15%;
+    width: 12%;
 }
 
 /* Status */
 .status-table th:nth-child(2) {
-    width: 55%;
+    width: 8%;
+}
+
+/* Res */
+.status-table th:nth-child(3) {
+    width: 8%;
+}
+
+/* Scene */
+.status-table th:nth-child(4) {
+    width: 42%;
 }
 
 /* Name - Expanded */
-.status-table th:nth-child(3) {
+.status-table th:nth-child(5) {
     width: 15%;
 }
 
-/* Progress - Reduced */
-.status-table th:nth-child(4) {
+/* Progress */
+.status-table th:nth-child(6) {
     width: 15%;
 }
+
+/* Actions */
 
 /* Actions */
 

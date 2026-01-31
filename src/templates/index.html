@@ -73,9 +73,11 @@
                     <table class="status-table">
                         <thead>
                             <tr>
-                                <th style="width: 15%">Status</th>
-                                <th style="width: 40%">Name / URL</th>
-                                <th style="width: 30%">Progress</th>
+                                <th style="width: 12%">Status</th>
+                                <th style="width: 8%">Res</th>
+                                <th style="width: 8%">Scene</th>
+                                <th style="width: 42%">Name / URL</th>
+                                <th style="width: 15%">Progress</th>
                                 <th style="width: 15%">Actions</th>
                             </tr>
                         </thead>
@@ -187,7 +189,7 @@
             const tbody = document.getElementById('job-table-body');
 
             if (jobs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No active or recent jobs</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No active or recent jobs</td></tr>';
                 return;
             }
 
@@ -241,9 +243,13 @@
                 }
 
                 const displayName = job.title ? job.title : job.url;
+                const res = job.resolution || '-';
+                const scene = job.scene || '-';
 
                 tr.innerHTML = `
                     <td><span class="badge ${badgeClass}">${job.status.toUpperCase()}</span></td>
+                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${res}p</span></td>
+                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${scene}</span></td>
                     <td><div class="job-name" title="${job.url}">${displayName}</div></td>
                     <td>${progressHtml}</td>
                     <td>${actions}</td>
