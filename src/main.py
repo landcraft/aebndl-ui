@@ -347,6 +347,12 @@ class DownloadManager:
                     with self.lock:
                          job["progress"] = 99
 
+                # Error Detection
+                if "RuntimeError:" in line or "Error:" in line:
+                    error_msg = line.split(":", 1)[1].strip() if ":" in line else line
+                    with self.lock:
+                        job["message"] = f"Error: {error_msg}"
+
                 # Phase 4: Cleanup
                 if re_cleanup.search(line):
                     with self.lock:
@@ -358,12 +364,6 @@ class DownloadManager:
                     # User requested to track only Video progress
                     with self.lock:
                         job["progress"] = current_video_prog
-                        # Update message only if it's generic, or keep last log?
-                        # Let's keep the message static "Downloading X%" or use the log line?
-                        # User wants cleaner logs, maybe UI message should be cleaner too?
-                        # Let's fallback to "Downloading... X%" if nothing specific
-                        # But typically we leave message as the last log line if it's interesting.
-                        # For now, let's allow "Downloading segments..." from above or update info.
                         pass
 
             process.wait()
