@@ -3,6 +3,9 @@ name: Weekly Build & Update
 on:
   schedule:
     - cron: '0 0 * * 0' # Weekly at midnight on Sunday
+  push:
+    branches:
+      - main
   workflow_dispatch: # Manual trigger
 
 env:
