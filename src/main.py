@@ -228,12 +228,32 @@ class DownloadManager:
                 job["process_obj"] = process
             
             # Read output
+            last_info = "Starting..."
+            last_audio = ""
+            last_video = ""
+
             for line in process.stdout:
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                
+                # Check line type and update state
+                if "Audio download:" in line:
+                    last_audio = line
+                elif "Video download:" in line:
+                    last_video = line
+                else:
+                    # Treat as general info/log
+                    last_info = line
                     logger.debug(f"[{job_id}] STDOUT: {line}")
-                    with self.lock:
-                        job["message"] = line
+                
+                # Combine messages
+                # Filter out empty strings
+                components = [s for s in [last_info, last_audio, last_video] if s]
+                combined_message = "\n".join(components)
+
+                with self.lock:
+                    job["message"] = combined_message
             
             process.wait()
             
