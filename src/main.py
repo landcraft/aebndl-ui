@@ -244,6 +244,9 @@ class DownloadManager:
             if job["scene"]: cmd.extend(["--scene", str(job["scene"])])
             if job["output_dir"]: cmd.extend(["--output_dir", job["output_dir"]])
             
+            # Explicitly set work directory to isolated temp folder
+            cmd.extend(["--work-dir", job_work_dir])
+            
             logger.info(f"[{job_id}] Running: {' '.join(cmd)}")
             
             env = os.environ.copy()
