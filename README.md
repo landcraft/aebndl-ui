@@ -11,8 +11,26 @@ A high-performance, containerized Web UI for the [aebn-vod-downloader](https://g
 ## Usage
 
 ### With Docker (Recommended)
+
+Create a `compose.yaml` file:
+
+```yaml
+services:
+  aebndl-ui:
+    image: ghcr.io/landcraft/aebndl-ui:latest
+    container_name: aebndl-ui
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./downloads:/downloads
+    environment:
+      - DOWNLOAD_DIR=/downloads
+    restart: unless-stopped
+```
+
+Run it:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 Access the dashboard at `http://localhost:8000`.
 
