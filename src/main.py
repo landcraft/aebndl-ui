@@ -268,11 +268,14 @@ class DownloadManager:
             import re
             
             # Regex patterns
-            # Note: "Output file name: Brazzers - ..."
             re_filename = re.compile(r"Output file name:\s*(.*)")
+            re_scraping = re.compile(r"Scraping movie info")
+            re_downloading = re.compile(r"Downloading segments")
             re_audio = re.compile(r"Audio download:.*?(\d+)%")
             re_video = re.compile(r"Video download:.*?(\d+)%")
             re_merging = re.compile(r"Merging (?:video|audio) segments.*?(\d+)%")
+            re_muxing = re.compile(r"Muxing streams")
+            re_cleanup = re.compile(r"Deleted temp files")
             
             current_audio_prog = 0
             current_video_prog = 0
@@ -300,22 +303,27 @@ class DownloadManager:
                 if not line:
                     continue
                 
-                # Check for Muxing/Merging activity
-                # "Merging video segments..." or "Muxing streams with ffmpeg"
-                if "Muxing streams" in line or "Muxing success" in line:
-                    with self.lock:
-                        job["status"] = "muxing"
-                        job["message"] = line
-                        if "Muxing success" in line:
-                            job["progress"] = 99 # almost done
+                # Phase 1: Setup / Scraping
+                if re_scraping.search(line):
+                     with self.lock:
+                        job["status"] = "scraping"
+                        job["message"] = "Fetching Metadata..."
 
-                # Parse Filename
+                # Phase 2: Start Downloading segments
+                if re_downloading.search(line):
+                     with self.lock:
+                        job["status"] = "downloading"
+                        job["message"] = "Starting download..."
+
+                # Parse Filename (can happen anytime during setup)
                 m_name = re_filename.search(line)
                 if m_name:
                     found_name = m_name.group(1).strip()
                     with self.lock:
                         job["title"] = found_name
-                        job["status"] = "downloading" 
+                        # If we found name, we are likely past scraping or close to it
+                        if job["status"] == "scraping":
+                             job["status"] = "downloading" 
 
                 # Parse Progress (Download)
                 m_audio = re_audio.search(line)
@@ -326,25 +334,42 @@ class DownloadManager:
                 if m_video:
                     current_video_prog = int(m_video.group(1))
                     
-                # Parse Progress (Merging)
+                # Phase 3: Merging & Muxing
                 m_merge = re_merging.search(line)
                 if m_merge:
                     with self.lock:
                         job["status"] = "muxing"
-                        job["message"] = line
-                        # Merging is the final step before muxing, usually happens after download
-                        # We can just show the merge % or keep it at 100% download?
-                        # Let's show the merge % as the progress if we are in that phase? 
-                        # Or simpler: if merging, just say 90%+. 
-                        # Actually the screenshot shows "Merging ... 96%". Let's use that.
+                        job["message"] = line # "Merging video segments... XX%"
                         job["progress"] = int(m_merge.group(1))
 
-                # Calculate Combined Download Progress if NOT unknown/merging
+                if re_muxing.search(line):
+                     with self.lock:
+                        job["status"] = "muxing"
+                        job["message"] = "Finalizing File (Muxing)..."
+                        job["progress"] = 99
+                
+                if "Muxing success" in line:
+                    with self.lock:
+                         job["progress"] = 99
+
+                # Phase 4: Cleanup
+                if re_cleanup.search(line):
+                    with self.lock:
+                        job["status"] = "cleaning"
+                        job["message"] = "Cleaning up..."
+
+                # Determine Progress Update
                 if job["status"] == "downloading":
                     # User requested to track only Video progress
                     with self.lock:
                         job["progress"] = current_video_prog
-                        job["message"] = line # Keep raw line for debug/details if needed
+                        # Update message only if it's generic, or keep last log?
+                        # Let's keep the message static "Downloading X%" or use the log line?
+                        # User wants cleaner logs, maybe UI message should be cleaner too?
+                        # Let's fallback to "Downloading... X%" if nothing specific
+                        # But typically we leave message as the last log line if it's interesting.
+                        # For now, let's allow "Downloading segments..." from above or update info.
+                        pass
 
             process.wait()
             

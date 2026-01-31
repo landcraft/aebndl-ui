@@ -196,9 +196,9 @@
             tbody.innerHTML = '';
 
             // Sort: Running > Queued > History
-            const running = jobs.filter(j => ['running', 'downloading', 'muxing'].includes(j.status));
+            const running = jobs.filter(j => ['running', 'downloading', 'muxing', 'scraping', 'cleaning'].includes(j.status));
             const queued = jobs.filter(j => j.status === 'queued');
-            const history = jobs.filter(j => !['running', 'downloading', 'muxing', 'queued'].includes(j.status));
+            const history = jobs.filter(j => !['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(j.status));
 
             const displayJobs = [
                 ...running,
@@ -213,6 +213,8 @@
                 let badgeClass = 'badge-default';
                 if (['running', 'downloading'].includes(job.status)) badgeClass = 'badge-running';
                 else if (job.status === 'muxing') badgeClass = 'badge-muxing';
+                else if (job.status === 'scraping') badgeClass = 'badge-scraping';
+                else if (job.status === 'cleaning') badgeClass = 'badge-cleaning';
                 else if (job.status === 'completed') badgeClass = 'badge-success';
                 else if (job.status === 'failed' || job.status === 'error') badgeClass = 'badge-error';
                 else if (job.status === 'queued') badgeClass = 'badge-queued';
@@ -229,11 +231,15 @@
                     progressHtml = `<span class="error-text">${job.message}</span>`;
                 } else if (job.status === 'queued') {
                     progressHtml = `<span class="queued-text">Waiting...</span>`;
+                } else if (job.status === 'scraping') {
+                    progressHtml = `<span class="queued-text">Fetching Metadata...</span>`;
+                } else if (job.status === 'cleaning') {
+                    progressHtml = `<span class="progress-text">Cleaning up...</span>`;
                 }
 
                 // Actions
                 let actions = '';
-                if (['running', 'downloading', 'muxing', 'queued'].includes(job.status)) {
+                if (['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(job.status)) {
                     actions = `<button onclick="stopJob('${job.id}')" class="btn-sm btn-stop">Stop</button>`;
                 } else {
                     actions = `
