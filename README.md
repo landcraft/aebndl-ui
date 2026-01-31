@@ -20,7 +20,7 @@ services:
     image: ghcr.io/landcraft/aebndl-ui:latest
     container_name: aebndl-ui
     ports:
-      - "8000:8000"
+      - "21345:21345"
     volumes:
       - ./downloads:/downloads
     environment:
@@ -32,7 +32,7 @@ Run it:
 ```bash
 docker compose up -d
 ```
-Access the dashboard at `http://localhost:8000`.
+Access the dashboard at `http://localhost:21345`.
 
 ### Manual
 1. Install dependencies:

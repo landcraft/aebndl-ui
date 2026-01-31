@@ -3,7 +3,7 @@ services:
     image: ghcr.io/landcraft/aebndl-ui:latest
     container_name: aebndl-ui
     ports:
-      - "8000:8000"
+      - "21345:21345"
     volumes:
       - ./downloads:/downloads
     environment:

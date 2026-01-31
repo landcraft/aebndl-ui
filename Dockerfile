@@ -29,7 +29,7 @@ ENV PYTHONPATH=/app/source
 RUN mkdir -p /downloads
 
 # Expose port
-EXPOSE 8000
+EXPOSE 21345
 
 # Command to run the app
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "21345"]
