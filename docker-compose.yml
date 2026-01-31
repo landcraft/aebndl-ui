@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  aebndl-ui:
+    build: .
+    image: aebndl-ui:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./downloads:/downloads
+      # Map source and manifest for dev/persistence if needed, but in prod image should contain source.
+      # For now, let's map source so we can test the update logic if we run the script inside?
+      # Actually, the Dockerfile copies everything `COPY . .`.
+      # So `source` is inside /app/source.
+    environment:
+      - DOWNLOAD_DIR=/downloads
+    restart: unless-stopped

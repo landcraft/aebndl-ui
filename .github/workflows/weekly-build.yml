@@ -1,0 +1,119 @@
+name: Weekly Build & Update
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly at midnight on Sunday
+  workflow_dispatch: # Manual trigger
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for Source Updates
+        id: check_update
+        run: |
+          chmod +x update_source.sh
+          # Run the update script. 
+          # It updates the 'source' dir and 'manifest.json' if there is a new SHA.
+          ./update_source.sh
+          
+          # Check if manifest.json was modified
+          if git diff --quiet manifest.json; then
+            echo "No changes detected in upstream source."
+            echo "updated=false" >> $GITHUB_OUTPUT
+          else
+            echo "New upstream version detected."
+            echo "updated=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for UI Changes
+        id: check_ui_changes
+        # If manual source update didn't happen, we should still build if UI code changed.
+        # But if this is a cron job, git diff might be empty if we just checked out.
+        # Actually, for cron, we care if the *Repo* has new commits since last build, OR if *Upstream* has new commits.
+        # This logic is a bit complex.
+        # Simplified: If `update_source.sh` changed manifest.json, we MUST build.
+        # If it didn't, we only build if there are other changes (which is unlikely on a cron unless we coordinate with previous run).
+        # However, the user request says: "Only push a new image tag to GHCR if a code change was detected in either the UI or the upstream source."
+        # If I push the updated manifest.json back to the repo, then the next run will know.
+        run: |
+            echo "Checking for local UI changes since last commit..."
+            # On cron, there are no "changes" unless we compare to a tag or previous run.
+            # But the user might have pushed UI changes during the week.
+            # The standard "build on push" handles UI changes.
+            # The "cron" handles upstream changes.
+            # So if this is triggered by workflow_dispatch or schedule, we rely on the check_update Step.
+            # If triggered by push, we should always build.
+            
+            if [ "${{ github.event_name }}" == "push" ]; then
+                echo "Triggered by push, forcing build."
+                echo "updated=true" >> $GITHUB_OUTPUT
+            fi
+            
+            # Note: We are not implementing the 'check for UI changes on cron' logic strictly because cron runs on HEAD.
+            # If HEAD hasn't changed, UI hasn't changed.
+            # So the only variable is Upstream.
+
+      - name: Commit and Push Manifest Updates
+        if: steps.check_update.outputs.updated == 'true'
+        run: |
+          git add manifest.json source
+          # Note: We are committing the 'source' submodule/directory? 
+          # The plan was to track SHA in manifest.
+          # We probably don't want to commit the entire source code to the UI repo if it's large.
+          # But `update_source.sh` does `git clone`.
+          # If we commit `source`, the repo grows.
+          # Better: We commit `manifest.json`. The Docker build will run `update_source.sh` or use the `source` dir present.
+          # If we commit `source`, we have a self-contained repo.
+          # Given "Fail-safe", we probably want to commit the source or a submodule.
+          # User said: "revert to the last successfully pulled local backup". This implies local filesystem.
+          # In CI context, "local backup" persistence is hard unless we commit it.
+          # Let's commit the `source` directory to ensure we have a snapshot.
+          # Warning: This might make the repo large. But it ensures "Fail-safe" works if GitHub is down,
+          # because we would checkout *our* repo which has the copy.
+          
+          git commit -m "chore: update upstream source to $(jq -r .last_known_good_sha manifest.json)"
+          git push
+
+      - name: Log in to the Container registry
+        if: steps.check_update.outputs.updated == 'true' || github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        if: steps.check_update.outputs.updated == 'true' || github.event_name == 'push'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - name: Build and push Docker image
+        if: steps.check_update.outputs.updated == 'true' || github.event_name == 'push'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

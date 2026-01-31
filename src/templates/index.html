@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>aebndl-ui</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script>
+        // Simple polling for status
+        setInterval(async () => {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                const statusBox = document.getElementById('status-content');
+                const startBtn = document.getElementById('start-btn');
+                
+                statusBox.textContent = data.message;
+                
+                if (data.status === 'running') {
+                    startBtn.disabled = true;
+                    statusBox.classList.add('pulsing');
+                    startBtn.textContent = 'Downloading...';
+                } else {
+                    startBtn.disabled = false;
+                    statusBox.classList.remove('pulsing');
+                    startBtn.textContent = 'Start Download';
+                }
+            } catch (e) {
+                console.error('Error fetching status:', e);
+            }
+        }, 1000);
+
+        // Fetch System Info on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch('/system-info');
+                const data = await response.json();
+                document.getElementById('sys-version').textContent = data.version;
+                document.getElementById('sys-date').textContent = data.date;
+            } catch (e) {
+                console.error(e);
+            }
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>aebndl-ui</h1>
+            <h2>High-Performance VOD Downloader</h2>
+            
+            <form id="download-form" action="/download" method="post" onsubmit="event.preventDefault(); submitForm();">
+                <div class="input-group">
+                    <label for="url">URL </label>
+                    <input type="text" id="url" name="url" placeholder="https://..." required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="resolution">Resolution</label>
+                    <select id="resolution" name="resolution">
+                        <option value="0">Best Available</option>
+                        <option value="2160">4K (2160p)</option>
+                        <option value="1080">1080p</option>
+                        <option value="720">720p</option>
+                        <option value="480">480p</option>
+                        <option value="240">240p</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 1rem;">
+                    <div class="input-group" style="flex: 1;">
+                        <label for="threads">Threads</label>
+                        <input type="number" id="threads" name="threads" value="5" min="1" max="50">
+                    </div>
+                    
+                    <div class="input-group" style="flex: 1;">
+                        <label for="scene">Scene Index (Optional)</label>
+                        <input type="number" id="scene" name="scene" placeholder="All">
+                    </div>
+                </div>
+
+                <button type="submit" id="start-btn" class="btn">Start Download</button>
+            </form>
+
+            <div class="status-box">
+                <div>Status:</div>
+                <div id="status-content">Idle</div>
+            </div>
+
+            <div class="system-info">
+                Downloader Core Version: <span id="sys-version">Loading...</span> | Last Updated: <span id="sys-date">Loading...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function submitForm() {
+            const form = document.getElementById('download-form');
+            const formData = new FormData(form);
+            
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                if (response.status !== 200) {
+                    alert('Error: ' + result.error || 'Failed to start');
+                }
+            } catch (e) {
+                alert('Connection error');
+            }
+        }
+    </script>
+</body>
+</html>

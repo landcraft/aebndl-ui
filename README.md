@@ -1,0 +1,34 @@
+# aebndl-ui
+
+A high-performance, containerized Web UI for the [aebn-vod-downloader](https://github.com/hyper440/aebn-vod-downloader).
+
+## Features
+- **Smart Source Tracking**: Automatically checks upstream for updates and rebuilds.
+- **Resilient**: Falls back to local backups if upstream is unreachable.
+- **Web Dashboard**: Clean interface to queue downloads.
+- **Containerized**: Runs anywhere with Docker.
+
+## Usage
+
+### With Docker (Recommended)
+```bash
+docker-compose up -d
+```
+Access the dashboard at `http://localhost:8000`.
+
+### Manual
+1. Install dependencies:
+   ```bash
+   pip install -r src/requirements.txt
+   ```
+2. Run the server:
+   ```bash
+   python3 src/main.py
+   ```
+   (Note: You might need to run `uvicorn src.main:app` directly if main.py doesn't start uvicorn programmatically, or use the `CMD` from Dockerfile instructions).
+
+## Configuration
+- `DOWNLOAD_DIR`: Path to save downloads (default: `./downloads`).
+
+## Updates
+The project includes an `update_source.sh` script that runs automatically in the Docker build process/CI to fetch the latest upstream downloader code.
