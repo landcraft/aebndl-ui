@@ -290,3 +290,14 @@ select:focus {
     border-top: 1px solid var(--border-color);
     padding-top: 1rem;
 }
+
+.system-info a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.system-info a:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}

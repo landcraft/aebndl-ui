@@ -306,7 +306,7 @@ async def index(request: Request):
 async def download(
     background_tasks: BackgroundTasks, # Not used for logic, but keeps FastAPI happy/async
     url: str = Form(...),
-    threads: int = Form(5),
+    threads: int = Form(10),
     resolution: str = Form("720"), 
     scene: str = Form(None),
 ):
