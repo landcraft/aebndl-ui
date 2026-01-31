@@ -286,9 +286,9 @@ class DownloadManager:
 
                 # Calculate Combined Download Progress if NOT unknown/merging
                 if job["status"] == "downloading":
-                    avg_progress = int((current_audio_prog + current_video_prog) / 2)
+                    # User requested to track only Video progress
                     with self.lock:
-                        job["progress"] = avg_progress
+                        job["progress"] = current_video_prog
                         job["message"] = line # Keep raw line for debug/details if needed
 
             process.wait()

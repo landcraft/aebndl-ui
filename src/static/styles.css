@@ -1,4 +1,5 @@
 :root {
+    /* Dark Mode (Default) */
     --bg-color: #0d1117;
     --card-bg: #161b22;
     --border-color: #30363d;
@@ -11,6 +12,24 @@
     --btn-primary: #238636;
     --btn-danger: #da3633;
     --btn-secondary: #21262d;
+    --header-text: #fff;
+}
+
+body.light-mode {
+    /* Light Mode Overrides */
+    --bg-color: #f6f8fa;
+    --card-bg: #ffffff;
+    --border-color: #d0d7de;
+    --text-primary: #24292f;
+    --text-secondary: #57606a;
+    --accent-color: #1f883d;
+    --accent-hover: #1a7f37;
+    --error-color: #cf222e;
+    --input-bg: #f6f8fa;
+    --btn-primary: #1f883d;
+    --btn-danger: #cf222e;
+    --btn-secondary: #f3f4f6;
+    --header-text: #24292f;
 }
 
 body {
@@ -21,6 +40,7 @@ body {
     padding: 2rem;
     min-height: 100vh;
     box-sizing: border-box;
+    transition: background-color 0.3s, color 0.3s;
 }
 
 .container {
@@ -31,13 +51,31 @@ body {
 
 header {
     margin-bottom: 2rem;
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 h1 {
     font-size: 1.8rem;
     margin: 0;
-    color: #fff;
+    color: var(--header-text);
+}
+
+/* Theme Toggle Button */
+.theme-toggle {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+}
+
+.theme-toggle:hover {
+    color: var(--text-primary);
+    background-color: var(--border-color);
 }
 
 h2 {
@@ -96,6 +134,28 @@ h2 {
     border-bottom: 2px solid var(--border-color);
 }
 
+/* Width Adjustments */
+.status-table th:nth-child(1) {
+    width: 15%;
+}
+
+/* Status */
+.status-table th:nth-child(2) {
+    width: 55%;
+}
+
+/* Name - Expanded */
+.status-table th:nth-child(3) {
+    width: 15%;
+}
+
+/* Progress - Reduced */
+.status-table th:nth-child(4) {
+    width: 15%;
+}
+
+/* Actions */
+
 .status-table td {
     padding: 1rem 0.75rem;
     border-bottom: 1px solid var(--border-color);
@@ -107,7 +167,8 @@ h2 {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 300px;
+    max-width: 500px;
+    /* Increased max-width */
     display: block;
 }
 
