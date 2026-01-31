@@ -104,7 +104,7 @@ async def download(
     background_tasks: BackgroundTasks,
     url: str = Form(...),
     threads: int = Form(5),
-    resolution: str = Form("0"), # Default to 0? Or let user pick.
+    resolution: str = Form("720"), # Default to 720p
     scene: str = Form(None),
 ):
     global download_status
