@@ -239,7 +239,6 @@ class DownloadManager:
         if job["resolution"]: cmd.extend(["--resolution", str(job["resolution"])])
         if job["scene"]: cmd.extend(["--scene", str(job["scene"])])
         if job["output_dir"]: cmd.extend(["--output_dir", job["output_dir"]])
-        cmd.append("--force-resolution")
         
         logger.info(f"[{job_id}] Running: {' '.join(cmd)}")
         
