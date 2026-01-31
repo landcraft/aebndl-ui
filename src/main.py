@@ -230,6 +230,7 @@ class DownloadManager:
                     job["message"] = "Initializing..."
                     job["progress"] = 0
                     job["title"] = None
+                    logger.info(f"[{job_id}] Processing. Active Jobs: {len(self.active_jobs)}/{self.max_concurrent}")
             
             if not job:
                 return
