@@ -15,69 +15,210 @@
 
 <body>
     <div class="container">
-        <div class="input-group">
-            <label for="url">URL </label>
-            <input type="text" id="url" name="url" placeholder="https://..." required>
+        <header>
+            <h1>AEBN VOD Downloader</h1>
+            <h2>Advanced Job Manager</h2>
+        </header>
+
+        <div class="main-grid">
+            <!-- Left Column: New Download -->
+            <section>
+                <div class="card">
+                    <div class="card-header">New Download</div>
+                    <form id="download-form">
+                        <div class="input-group">
+                            <label for="url">Video URL</label>
+                            <input type="text" id="url" name="url" placeholder="https://aebn.net/..." required>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="threads">Threads</label>
+                            <input type="number" id="threads" name="threads" value="5" min="1" max="20">
+                        </div>
+
+                        <div class="input-group">
+                            <label for="resolution">Target Resolution</label>
+                            <select id="resolution" name="resolution">
+                                <option value="2160">4K (2160p)</option>
+                                <option value="1440">1440p</option>
+                                <option value="1080">1080p</option>
+                                <option value="720" selected>720p</option>
+                                <option value="480">480p</option>
+                                <option value="360">360p</option>
+                                <option value="240">240p</option>
+                            </select>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="scene">Scene Index (Optional)</label>
+                            <input type="number" id="scene" name="scene" placeholder="1">
+                        </div>
+
+                        <button type="submit" id="start-btn" class="btn">Queue Download</button>
+                    </form>
+                </div>
+
+                <div class="system-info">
+                    <p>Core Version: <span id="sys-version">...</span></p>
+                    <p>Last Update: <span id="sys-date">...</span></p>
+                </div>
+            </section>
+
+            <!-- Right Column: Job List -->
+            <section>
+                <div class="card">
+                    <div class="card-header">Job Queue & History</div>
+                    <div id="job-list" class="job-list">
+                        <div class="empty-state">Loading jobs...</div>
+                    </div>
+                </div>
+            </section>
         </div>
-
-        <div class="input-group">
-            <label for="resolution">Resolution</label>
-            <select id="resolution" name="resolution">
-                <option value="0">Best Available</option>
-                <option value="2160">4K (2160p)</option>
-                <option value="1080">1080p</option>
-                <option value="720" selected>720p</option>
-                <option value="480">480p</option>
-                <option value="240">240p</option>
-            </select>
-        </div>
-
-        <div style="display: flex; gap: 1rem;">
-            <div class="input-group" style="flex: 1;">
-                <label for="threads">Threads</label>
-                <input type="number" id="threads" name="threads" value="5" min="1" max="50">
-            </div>
-
-            <div class="input-group" style="flex: 1;">
-                <label for="scene">Scene Index (Optional)</label>
-                <input type="number" id="scene" name="scene" placeholder="All">
-            </div>
-        </div>
-
-        <button type="submit" id="start-btn" class="btn">Start Download</button>
-        </form>
-
-        <div class="status-box">
-            <div>Status:</div>
-            <div id="status-content">Idle</div>
-        </div>
-
-        <div class="system-info">
-            Downloader Core Version: <span id="sys-version">Loading...</span> | Last Updated: <span
-                id="sys-date">Loading...</span>
-        </div>
-    </div>
     </div>
 
     <script>
-        async function submitForm() {
-            const form = document.getElementById('download-form');
-            const formData = new FormData(form);
+        // Form Submission
+        document.getElementById('download-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('start-btn');
+            btn.disabled = true;
+            btn.textContent = 'Queueing...';
 
+            const formData = new FormData(e.target);
             try {
                 const response = await fetch('/download', {
                     method: 'POST',
                     body: formData
                 });
-
-                const result = await response.json();
-                if (response.status !== 200) {
-                    alert('Error: ' + result.error || 'Failed to start');
-                }
-            } catch (e) {
-                alert('Connection error');
+                const data = await response.json();
+                // We rely on polling to show the new job
+                // Reset form URL but keep settings
+                document.getElementById('url').value = '';
+            } catch (error) {
+                alert('Error starting download: ' + error);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Queue Download';
             }
+        });
+
+        // Job Polling
+        setInterval(async () => {
+            try {
+                const response = await fetch('/status');
+                const jobs = await response.json();
+                renderJobs(jobs);
+            } catch (e) {
+                console.error('Error fetching status:', e);
+            }
+        }, 1000);
+
+        function renderJobs(jobs) {
+            const list = document.getElementById('job-list');
+
+            if (jobs.length === 0) {
+                list.innerHTML = '<div class="empty-state">No active or recent jobs</div>';
+                return;
+            }
+
+            // Simple diffing logic: completely re-render for now to be safe
+            list.innerHTML = '';
+
+            // Backend returns active + history.
+            // We want newest history at top OR active at top?
+            // Let's assume backend returns "active" values first then "history".
+            // If we reverse, we get History (oldest->newest) then Active(oldest->newest) reversed -> active newest first?
+            // Actually let's just display them.
+            // "Active" jobs are in a dict, order is insertion order usually (py3.7+). History is insertion order.
+            // manager.get_status returns active.values() + history.values().
+            // So Pending -> Running -> Completed/Old
+
+            // To show "Newest Added" at top, we might want to sort by ID or creation time if we had it.
+            // But preserving backend order reversed (Newest added at bottom -> Top) is usually okay for queue.
+            // Actually queue is FIFO.
+            // Pending jobs are at top of queue list.
+            // If we iterate array, first item is first in queue.
+            // We probably want to see the "Active/First in Queue" at the top.
+            // So we should NOT reverse if the list is [Head ...... Tail].
+            // BUT: `history` is appended. So history items are at the end.
+            // If we have [Active1, Active2, History1, History2], reversed is [H2, H1, A2, A1].
+            // This puts history at top. That's annoying if we want to see active progress.
+            // Let's separate them?
+            // Or just sort by status priority: Running > Queued > Completed/Failed.
+
+            const running = jobs.filter(j => j.status === 'running');
+            const queued = jobs.filter(j => j.status === 'queued');
+            const history = jobs.filter(j => !['running', 'queued'].includes(j.status));
+
+            // Display order: Running, then Queued (in order), then History (newest first)
+            const displayJobs = [
+                ...running,
+                ...queued,
+                ...history.reverse() // show latest completed first
+            ];
+
+            displayJobs.forEach(job => {
+                const card = document.createElement('div');
+                card.className = 'job-card';
+                if (job.status === 'running') card.style.borderColor = '#d29922'; // slight highlight
+
+                // Action Buttons
+                let actions = '';
+                if (job.status === 'running' || job.status === 'queued') {
+                    actions += `<button onclick="stopJob('${job.id}')" class="btn-sm btn-stop" title="Stop">Stop</button>`;
+                } else {
+                    // Completed / Failed / Cancelled
+                    actions += `<button onclick="restartJob('${job.id}')" class="btn-sm btn-restart" title="Restart">Rerun</button>`;
+                    actions += `<button onclick="deleteJob('${job.id}')" class="btn-sm btn-delete" title="Delete">✕</button>`;
+                }
+
+                const badgeClass = job.status.toLowerCase();
+
+                card.innerHTML = `
+                    <div class="job-header">
+                        <div>
+                            <span class="badge ${badgeClass}">${job.status}</span>
+                            <span class="job-id">#${job.id}</span>
+                        </div>
+                        <div>${actions}</div>
+                    </div>
+                    <span class="job-url" title="${job.url}">${job.url}</span>
+                    <div class="job-status-line">
+                         <!-- Could add progress bar here if we parsed percent -->
+                    </div>
+                    <div class="job-message">${job.message}</div>
+                `;
+                list.appendChild(card);
+            });
         }
+
+        // Actions
+        async function stopJob(id) {
+            if (!confirm('Stop this download?')) return;
+            await fetch(`/cancel/${id}`, { method: 'POST' });
+        }
+
+        async function restartJob(id) {
+            if (!confirm('Restart this job as a new download?')) return;
+            await fetch(`/restart/${id}`, { method: 'POST' });
+        }
+
+        async function deleteJob(id) {
+            if (!confirm('Remove this job from history?')) return;
+            await fetch(`/delete/${id}`, { method: 'DELETE' });
+        }
+
+        // System Info
+        window.addEventListener('load', async () => {
+            try {
+                const res = await fetch('/system-info');
+                const data = await res.json();
+                document.getElementById('sys-version').textContent = data.version;
+                document.getElementById('sys-date').textContent = data.date;
+            } catch (e) {
+                console.error(e);
+            }
+        });
     </script>
 </body>
 
