@@ -250,13 +250,13 @@
                     `;
                 }
 
+                const displayRes = res.toString().includes('p') ? res : res + 'p';
                 const displayName = job.title ? job.title : job.url;
-                const res = job.resolution || '-';
                 const scene = job.scene || '-';
 
                 tr.innerHTML = `
                     <td><span class="badge ${badgeClass}">${job.status.toUpperCase()}</span></td>
-                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${res}p</span></td>
+                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${displayRes}</span></td>
                     <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${scene}</span></td>
                     <td><div class="job-name" title="${job.url}">${displayName}</div></td>
                     <td>${progressHtml}</td>
