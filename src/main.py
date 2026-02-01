@@ -94,10 +94,25 @@ class DownloadManager:
                 job = self.active_jobs[job_id]
                 if job["status"] == "running" and job["process_obj"]:
                     try:
-                        job["process_obj"].terminate()
-                        job["message"] = "Terminating process..."
+                        import signal
+                        # Try graceful shutdown first (Ctrl+C simulation) which aebn_dl handles
+                        job["process_obj"].send_signal(signal.SIGINT)
+                        job["message"] = "Stopping..."
+                        
+                        # Wait a moment to see if it exits (optional, but good for cleanup)
+                        # We won't block here long, let the worker loop handle the wait()
+                        
+                        # Mark as cancelled so the worker loop knows how to handle the exit code
+                        # (worker loop sees process die -> checks this status)
+                        job["status"] = "cancelled" 
+                        return True
                     except Exception as e:
                         logger.error(f"Error terminating job {job_id}: {e}")
+                        # Fallback to kill if needed (though wait loop usually handles this if we wanted to be robust)
+                        try:
+                            job["process_obj"].kill()
+                        except:
+                            pass
                 
                 # We don't remove immediately, user might want to see "Cancelled"
                 # But requirement says "remove from status window".
@@ -348,6 +363,18 @@ class DownloadManager:
                 # Log raw for debug
                 logger.info(f"[{job_id}] CLI: {clean_line}")
                 
+                # Skip status updates if we are cancelling
+                # We need to lock to check safely, or just check the local dict ref (atomic in python roughly)
+                # But safer to check inside specific update blocks or just ignore parsing if cancelled?
+                # If we ignore parsing, we might miss "Cleaned up" message, but that's fine for cancellation.
+                
+                should_skip = False
+                with self.lock:
+                    if job.get("status") == "cancelled":
+                        should_skip = True
+                if should_skip:
+                    continue
+
                 # Phase 1: Setup / Scraping
                 if re_scraping.search(clean_line):
                      with self.lock:
