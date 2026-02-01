@@ -142,16 +142,6 @@ class DownloadManager:
                 self.queue.append(job_id)
                 
             return job_id
-            
-            # Create new job with same params
-            new_job_id = self.add_job(
-                old_job["url"],
-                old_job["threads"],
-                old_job["resolution"],
-                old_job["scene"],
-                old_job["output_dir"]
-            )
-            return new_job_id
 
     def delete_job(self, job_id):
         with self.lock:
@@ -192,15 +182,17 @@ class DownloadManager:
 
     def get_status(self):
         with self.lock:
-            all_jobs = list(self.active_jobs.values()) + list(self.history.values())
-            # Return sanitized copies
-            results = [self._sanitize_job(j) for j in all_jobs]
-            
-            # Add debug info to a metadata field if we wanted, but for now let's just log it
-            # Or we could return a dict with metadata, but that breaks frontend array expectation
-            # We'll rely on server logs for now.
-            logger.debug(f"Status check: {len(self.active_jobs)} active, {len(self.queue)} in queue")
-            return results
+            try:
+                active_list = list(self.active_jobs.values())
+                history_list = list(self.history.values())
+                all_jobs = active_list + history_list
+                # Return sanitized copies
+                results = [self._sanitize_job(j) for j in all_jobs]
+                
+                return results
+            except Exception as e:
+                logger.error(f"Error in get_status: {e}")
+                return []
 
     def _worker_loop(self):
         thread_name = threading.current_thread().name
