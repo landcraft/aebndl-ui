@@ -267,12 +267,25 @@ class DownloadManager:
             
             # Parsing State
             
-            # Regex patterns
+            # Helper to strip ANSI escape codes
+            def clean_ansi(text):
+                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                return ansi_escape.sub('', text)
+
+            # Regex patterns (Updated for Rich output)
             re_filename = re.compile(r"Output file name:\s*(.*)")
             re_scraping = re.compile(r"Scraping movie info")
             re_downloading = re.compile(r"Downloading segments")
-            re_audio = re.compile(r"Audio download:.*?(\d+)%")
-            re_video = re.compile(r"Video download:.*?(\d+)%")
+            
+            # Rich Progress: "Video download: 12/34 ... 45% ... 0:02:30"
+            # Regex to find: "Video download:", then digits%, then time-like string at end
+            re_audio = re.compile(r"Audio download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?)")
+            re_video = re.compile(r"Video download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?)")
+            
+            # Fallback if time not found (e.g. start)
+            re_audio_simple = re.compile(r"Audio download:.*?(\d+)%")
+            re_video_simple = re.compile(r"Video download:.*?(\d+)%")
+            
             re_merging = re.compile(r"Merging (?:video|audio) segments.*?(\d+)%")
             re_muxing = re.compile(r"Muxing streams")
             re_cleanup = re.compile(r"Deleted temp files")
@@ -299,86 +312,102 @@ class DownloadManager:
                         buffer += chunk
             
             for line in read_stream(process.stdout):
-                line = line.strip()
-                if not line:
+                # Clean ANSI codes immediately
+                clean_line = clean_ansi(line).strip()
+                
+                if not clean_line:
                     continue
                 
-                # Log CLI output for debugging
-                logger.info(f"[{job_id}] CLI: {line}")
+                # Log raw for debug (optional, can spam)
+                # logger.info(f"[{job_id}] CLI: {clean_line}")
                 
                 # Phase 1: Setup / Scraping
-                if re_scraping.search(line):
+                if re_scraping.search(clean_line):
                      with self.lock:
                         job["status"] = "scraping"
                         job["message"] = "Fetching Metadata..."
 
                 # Phase 2: Start Downloading segments
-                if re_downloading.search(line):
+                if re_downloading.search(clean_line):
                      with self.lock:
                         job["status"] = "downloading"
                         job["message"] = "Starting download..."
 
-                # Parse Filename (can happen anytime during setup)
-                m_name = re_filename.search(line)
+                # Parse Filename
+                m_name = re_filename.search(clean_line)
                 if m_name:
                     found_name = m_name.group(1).strip()
                     with self.lock:
                         job["title"] = found_name
-                        
-                        # Extract actual resolution from filename (e.g., "Movie 720p.mp4")
+                        # Extract parsed resolution
                         m_res = re.search(r"(\d{3,4}p)", found_name)
                         if m_res:
                             job["resolution"] = m_res.group(1)
 
-                        # If we found name, we are likely past scraping or close to it
                         if job["status"] == "scraping":
                              job["status"] = "downloading" 
 
                 # Parse Progress (Download)
-                m_audio = re_audio.search(line)
-                if m_audio:
-                    current_audio_prog = int(m_audio.group(1))
-                
-                m_video = re_video.search(line)
+                # Video (Priority)
+                m_video = re_video.search(clean_line)
                 if m_video:
                     current_video_prog = int(m_video.group(1))
+                    eta = m_video.group(2)
+                    with self.lock:
+                        job["progress"] = current_video_prog
+                        job["eta"] = eta
+                        job["message"] = f"Downloading Video: {current_video_prog}% (ETA: {eta})"
+                        
+                elif re_video_simple.search(clean_line):
+                    m = re_video_simple.search(clean_line)
+                    current_video_prog = int(m.group(1))
+                    with self.lock:
+                        job["progress"] = current_video_prog
+                        # Keep existing ETA if valid
+                
+                # Audio
+                # We track it but main status is driven by video if both active
+                m_audio = re_audio.search(clean_line)
+                if m_audio:
+                    current_audio_prog = int(m_audio.group(1))
+                    # Optional: Could update message to say "V: 50% A: 40%"?
+                    # For now keep simple
                     
                 # Phase 3: Merging & Muxing
-                m_merge = re_merging.search(line)
+                m_merge = re_merging.search(clean_line)
                 if m_merge:
                     with self.lock:
                         job["status"] = "muxing"
-                        job["message"] = line # "Merging video segments... XX%"
+                        job["message"] = clean_line
                         job["progress"] = int(m_merge.group(1))
+                        job["eta"] = ""
 
-                if re_muxing.search(line):
+                if re_muxing.search(clean_line):
                      with self.lock:
                         job["status"] = "muxing"
                         job["message"] = "Finalizing File (Muxing)..."
                         job["progress"] = 99
+                        job["eta"] = ""
                 
-                if "Muxing success" in line:
+                if "Muxing success" in clean_line:
                     with self.lock:
                          job["progress"] = 99
 
                 # Error Detection
-                if "RuntimeError:" in line or "Error:" in line:
-                    error_msg = line.split(":", 1)[1].strip() if ":" in line else line
-                    with self.lock:
-                        job["message"] = f"Error: {error_msg}"
+                if "RuntimeError:" in clean_line or "Error:" in clean_line:
+                    # Filter out "Error downloading segment" which are retried
+                    if "downloading segment" not in clean_line.lower():
+                        error_msg = clean_line.split(":", 1)[1].strip() if ":" in clean_line else clean_line
+                        with self.lock:
+                            job["message"] = f"Error: {error_msg}"
+                            # Don't set status to error yet, wait for process exit
 
                 # Phase 4: Cleanup
-                if re_cleanup.search(line):
+                if re_cleanup.search(clean_line):
                     with self.lock:
                         job["status"] = "cleaning"
                         job["message"] = "Cleaning up..."
-
-                # Determine Progress Update
-                if job["status"] == "downloading":
-                    # User requested to track only Video progress
-                    with self.lock:
-                        job["progress"] = current_video_prog
-                        pass
+                        job["eta"] = ""
 
             process.wait()
             
@@ -387,11 +416,12 @@ class DownloadManager:
                     if job["progress"] == 0:
                          job["status"] = "failed"
                          job["message"] = f"Finished with 0% progress. Check logs."
-                         logger.warning(f"Job {job_id} finished with 0% progress. CLI might have exited early.")
+                         logger.warning(f"Job {job_id} finished with 0% progress. CLI output possibly not parsed.")
                     else:
                         job["status"] = "completed"
                         job["progress"] = 100
                         job["message"] = "Download finished."
+                        job["eta"] = ""
                 else:
                     if job["status"] != "cancelled": 
                         job["status"] = "failed"

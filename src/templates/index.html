@@ -77,14 +77,15 @@
                                 <th style="width: 12%">Status</th>
                                 <th style="width: 8%">Res</th>
                                 <th style="width: 8%">Scene</th>
-                                <th style="width: 42%">Name / URL</th>
+                                <th style="width: 32%">Name / URL</th>
                                 <th style="width: 15%">Progress</th>
+                                <th style="width: 10%">ETA</th>
                                 <th style="width: 15%">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="job-table-body">
                             <tr>
-                                <td colspan="4" class="empty-state">No active jobs</td>
+                                <td colspan="7" class="empty-state">No active jobs</td>
                             </tr>
                         </tbody>
                     </table>
@@ -254,6 +255,7 @@
                 const displayRes = res.toString().includes('p') ? res : res + 'p';
                 const displayName = job.title ? job.title : job.url;
                 const scene = job.scene || '-';
+                const eta = job.eta || '-';
 
                 tr.innerHTML = `
                     <td><span class="badge ${badgeClass}">${job.status.toUpperCase()}</span></td>
@@ -261,6 +263,7 @@
                     <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${scene}</span></td>
                     <td><div class="job-name" title="${job.url}">${displayName}</div></td>
                     <td>${progressHtml}</td>
+                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${eta}</span></td>
                     <td>${actions}</td>
                 `;
                 tbody.appendChild(tr);
