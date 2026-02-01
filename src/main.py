@@ -248,6 +248,7 @@ class DownloadManager:
             env = os.environ.copy()
             env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
             env["PYTHONUNBUFFERED"] = "1"
+            env["TERM"] = "dumb" # Try to force simpler output
             
             # Run the process in the ISOLATED working directory
             process = subprocess.Popen(
@@ -318,8 +319,8 @@ class DownloadManager:
                 if not clean_line:
                     continue
                 
-                # Log raw for debug (optional, can spam)
-                # logger.info(f"[{job_id}] CLI: {clean_line}")
+                # Log raw for debug
+                logger.info(f"[{job_id}] CLI: {clean_line}")
                 
                 # Phase 1: Setup / Scraping
                 if re_scraping.search(clean_line):
