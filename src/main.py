@@ -248,19 +248,29 @@ class DownloadManager:
             env = os.environ.copy()
             env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
             env["PYTHONUNBUFFERED"] = "1"
-            env["TERM"] = "dumb" # Try to force simpler output
+            env["TERM"] = "xterm-256color" # Fake a real terminal
+            env["FORCE_COLOR"] = "1" # Force Rich to render
+            
+            # Use PTY to force the subprocess to think it's in a real terminal
+            # This ensures Rich prints the progress bars!
+            import pty
+            master_fd, slave_fd = pty.openpty()
             
             # Run the process in the ISOLATED working directory
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=slave_fd,
+                stderr=slave_fd, # Merge stderr to stdout (PTY handles this)
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
                 cwd=job_work_dir,  # Use isolated dir
-                env=env
+                env=env,
+                close_fds=True # Important for PTY
             )
+            
+            # Close slave fd in parent process (so we get EOF when child dies)
+            os.close(slave_fd)
             
             with self.lock:
                 job["pid"] = process.pid
@@ -295,24 +305,39 @@ class DownloadManager:
             current_video_prog = 0
             
             # Helper to read stream char by char/chunk to handle \r
-            def read_stream(stream):
+            def read_stream(master_fd):
                 buffer = ""
+                decoder =  threading.local() # Just in case, but simple decode works
+                
                 while True:
-                    # Read larger chunks for efficiency, but scan for \r
-                    chunk = stream.read(1) # Read 1 char at a time to be safe with blocking
-                    if not chunk:
-                        if buffer:
-                            yield buffer
+                    try:
+                        # Read from PTY master
+                        # Note: os.read returns bytes, need to decode
+                        data = os.read(master_fd, 1024) 
+                        if not data:
+                            break
+                        
+                        chunk = data.decode('utf-8', errors='replace')
+                        
+                        # Process chunk
+                        for char in chunk:
+                             if char == '\n' or char == '\r':
+                                 if buffer.strip():
+                                     yield buffer
+                                 buffer = ""
+                             else:
+                                 buffer += char
+                                 
+                    except OSError:
+                        # Input/output error usually means the slave (process) closed
                         break
-                    
-                    if chunk == '\n' or chunk == '\r':
-                        if buffer.strip():
-                            yield buffer
-                        buffer = ""
-                    else:
-                        buffer += chunk
+                
+                # Flush remaining
+                if buffer.strip():
+                     yield buffer
             
-            for line in read_stream(process.stdout):
+            # Pass the master_fd to the reader
+            for line in read_stream(master_fd):
                 # Clean ANSI codes immediately
                 clean_line = clean_ansi(line).strip()
                 
