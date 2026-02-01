@@ -165,25 +165,13 @@ class DownloadManager:
             if job_id in self.active_jobs:
                 # If running, try to cancel first
                 self.cancel_job(job_id)
-                # It might take a moment to move to history.
-                # But `cancel_job` returns True if it initiated cancel.
-                # We can force remove from queue if it was queued.
-                # If it was running, it moves to history eventually.
-                # For UI responsiveness, let's just trigger cancel. User can click delete again if it persists?
-                # Or we can just let `cancel_job` handle the cleanup.
                 
-                # Implementation Detail: `cancel_job` already moves queued jobs to history.
-                # Running jobs stay active until process exits.
-                # So `delete_job` should mainly be for History items.
-                # If user tries to delete a running job, we should probably Cancel it first.
-                
-                # Let's just return False if it's active/running, telling user to "Stop" first?
-                # Or auto-stop.
-                
-                # Requirement: "Delete a job"
-                # Let's try to cancel it, then allow deletion from history.
-                self.cancel_job(job_id)
-                return True # It will be effectively "deleted" or "cancelling"
+                # Force remove from active status (UI expects "Remove" to remove)
+                # If it was running, it becomes orphaned but will terminate shortly.
+                # If it was stuck/failed, it is removed.
+                if job_id in self.active_jobs:
+                    del self.active_jobs[job_id]
+                return True
                 
             return False
 
