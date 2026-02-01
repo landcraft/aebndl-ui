@@ -288,10 +288,11 @@ class DownloadManager:
             re_scraping = re.compile(r"Scraping movie info")
             re_downloading = re.compile(r"Downloading segments")
             
-            # Rich Progress: "Video download: 12/34 ... 45% ... 0:02:30"
-            # Regex to find: "Video download:", then digits%, then time-like string at end
-            re_audio = re.compile(r"Audio download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?)")
-            re_video = re.compile(r"Video download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?)")
+            # Rich Progress: "Video download: 12/34 ... 45% ... 0:01:23 00:04:56"
+            # Regex to find: "Video download:", then digits%, then TWO time-like strings
+            # Group 1: Progress %, Group 2: Elapsed, Group 3: ETA
+            re_audio = re.compile(r"Audio download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?).*?(\d{1,2}:\d{2}(?::\d{2})?)")
+            re_video = re.compile(r"Video download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?).*?(\d{1,2}:\d{2}(?::\d{2})?)")
             
             # Fallback if time not found (e.g. start)
             re_audio_simple = re.compile(r"Audio download:.*?(\d+)%")
@@ -378,7 +379,8 @@ class DownloadManager:
                 m_video = re_video.search(clean_line)
                 if m_video:
                     current_video_prog = int(m_video.group(1))
-                    eta = m_video.group(2)
+                    # Group 2 is Elapsed, Group 3 is ETA
+                    eta = m_video.group(3)
                     with self.lock:
                         job["progress"] = current_video_prog
                         job["eta"] = eta
