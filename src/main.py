@@ -413,15 +413,18 @@ class DownloadManager:
                 job["pid"] = None
                 
             # Post-processing
-            if job["status"] == "completed" or job["status"] == "cancelled":
+            if job["status"] == "completed":
                 import time
                 time.sleep(5) # Give user a moment to see "Completed" status
                 with self.lock:
                     if job_id in self.active_jobs:
-                        # Success/Cancelled: Remove entirely (do not save to history)
+                        # Success: Remove entirely (do not save to history)
                         self.active_jobs.pop(job_id)
             else:
-                # Failed/Error: Move to history so user can retry
+                # Failed/Error/Cancelled: Move to history so user can retry/inspect
+                with self.lock:
+                    if job_id in self.active_jobs:
+                         self.history[job_id] = self.active_jobs.pop(job_id)
                 with self.lock:
                     if job_id in self.active_jobs:
                          self.history[job_id] = self.active_jobs.pop(job_id)
