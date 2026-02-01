@@ -115,32 +115,33 @@ class DownloadManager:
 
     def restart_job(self, job_id):
         with self.lock:
-            # Look in history first, then active (though restarting active is weird, maybe just copy params)
-            old_job = self.history.get(job_id) or self.active_jobs.get(job_id)
+            # Look in history first (most likely place for retry), then active
+            job = self.history.get(job_id) or self.active_jobs.get(job_id)
             
-            if not old_job:
+            if not job:
                 return None
             
-            # Remove the old job (Requirement: "remove the old one and add the new job")
+            # If it's already running (active + in queue or running), do nothing or return existing
+            if job["status"] in ["queued", "running", "downloading", "muxing", "scraping"]:
+                 return job_id
+
+            # Reset status to queued
+            job["status"] = "queued"
+            job["message"] = "Restarting..."
+            job["progress"] = 0
+            job["pid"] = None
+            job["process_obj"] = None
+            
+            # Move from history to active if needed
             if job_id in self.history:
                 del self.history[job_id]
-            elif job_id in self.active_jobs:
-                # If it's active/running, we should technically stop it first if it's running
-                # But "restart" usually implies it's done/failed.
-                # If user restarts a running job, we'll cancel it first.
-                # However, calling self.cancel_job here would require releasing lock or careful recursion.
-                # Simpler: Just remove it from active_jobs if it's there. 
-                # Note: If it had a process running, it becomes orphaned. 
-                # Best practice: terminate if running.
-                job = self.active_jobs[job_id]
-                if job.get("process_obj"):
-                    try:
-                        job["process_obj"].terminate()
-                    except:
-                        pass
-                del self.active_jobs[job_id]
-                if job_id in self.queue:
-                     self.queue.remove(job_id)
+                self.active_jobs[job_id] = job
+            
+            # Add to queue
+            if job_id not in self.queue:
+                self.queue.append(job_id)
+                
+            return job_id
             
             # Create new job with same params
             new_job_id = self.add_job(
@@ -157,6 +158,13 @@ class DownloadManager:
             # Check history first
             if job_id in self.history:
                 del self.history[job_id]
+                # Cleanup temp dir
+                job_work_dir = os.path.join(PROJECT_ROOT, "temp", job_id)
+                if os.path.exists(job_work_dir):
+                    try:
+                        shutil.rmtree(job_work_dir)
+                    except Exception as e:
+                        logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
                 return True
             
             # If in active, only delete if not strictly "running" (queued is fine to cancel+delete)
@@ -167,10 +175,17 @@ class DownloadManager:
                 self.cancel_job(job_id)
                 
                 # Force remove from active status (UI expects "Remove" to remove)
-                # If it was running, it becomes orphaned but will terminate shortly.
-                # If it was stuck/failed, it is removed.
                 if job_id in self.active_jobs:
                     del self.active_jobs[job_id]
+                
+                # Cleanup temp dir (ONLY happens on manual delete now)
+                job_work_dir = os.path.join(PROJECT_ROOT, "temp", job_id)
+                if os.path.exists(job_work_dir):
+                    try:
+                        shutil.rmtree(job_work_dir)
+                    except Exception as e:
+                        logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
+
                 return True
                 
             return False
@@ -418,11 +433,15 @@ class DownloadManager:
                          self.history[job_id] = self.active_jobs.pop(job_id)
             
             # Cleanup temp dir
-            if job_work_dir and os.path.exists(job_work_dir):
-                try:
-                    shutil.rmtree(job_work_dir)
-                except Exception as e:
-                    logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
+            # ONLY cleanup if completed (success). 
+            # If failed/cancelled, keep dir so user can restart/resume.
+            # Manual delete_job handles explicit cleanup.
+            if job["status"] == "completed":
+                if job_work_dir and os.path.exists(job_work_dir):
+                    try:
+                        shutil.rmtree(job_work_dir)
+                    except Exception as e:
+                        logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
 
 
 manager = DownloadManager(max_concurrent=2)
