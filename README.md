@@ -48,5 +48,11 @@ Access the dashboard at `http://localhost:21345`.
 ## Configuration
 - `DOWNLOAD_DIR`: Path to save downloads (default: `./downloads`).
 
-## Updates
 The project includes an `update_source.sh` script that runs automatically in the Docker build process/CI to fetch the latest upstream downloader code.
+
+## Attribution
+This project uses the core downloading logic from the **aebn-vod-downloader** project.
+- **Original Source**: [https://github.com/hyper440/aebn-vod-downloader](https://github.com/hyper440/aebn-vod-downloader)
+- **Credits**: `estellaarrieta`, `hyper440`
+
+See [NOTICE](NOTICE) and [ATTRIBUTION.md](ATTRIBUTION.md) for more details.
