@@ -250,6 +250,7 @@
                     `;
                 }
 
+                const res = job.resolution || '-';
                 const displayRes = res.toString().includes('p') ? res : res + 'p';
                 const displayName = job.title ? job.title : job.url;
                 const scene = job.scene || '-';
