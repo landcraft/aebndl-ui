@@ -1,0 +1,9 @@
+INFO:aebndl-ui:Worker Thread-1 (_worker_loop) started
+INFO:aebndl-ui:Worker Thread-2 (_worker_loop) started
+INFO:     Started server process [63227]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:21345 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54466 - "HEAD /status HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:54468 - "HEAD /stream-status HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:54477 - "GET /status HTTP/1.1" 200 OK

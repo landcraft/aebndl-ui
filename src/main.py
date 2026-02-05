@@ -3,10 +3,12 @@ import re
 import shutil
 import subprocess
 import threading
+import asyncio
+import json
 from fastapi import FastAPI, Request, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 import logging
 
 # Configure Logging
@@ -14,6 +16,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aebndl-ui")
 
 app = FastAPI()
+
+
 
 # Mount Static and Templates
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -562,6 +566,23 @@ async def delete(job_id: str):
 @app.get("/status")
 async def get_status():
     return manager.get_status()
+
+@app.get("/stream-status")
+async def stream_status(request: Request):
+    """Server-Sent Events (SSE) for real-time status updates."""
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+            
+            # GetData
+            data = manager.get_status()
+            yield f"data: {json.dumps(data)}\n\n"
+            
+            # Wait for 1 second (polled server-side is better than reconnecting http)
+            await asyncio.sleep(1)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/system-info")
 async def system_info():

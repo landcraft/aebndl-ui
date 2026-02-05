@@ -1,0 +1,9 @@
+INFO:aebndl-ui:Worker Thread-1 (_worker_loop) started
+INFO:aebndl-ui:Worker Thread-2 (_worker_loop) started
+INFO:     Started server process [61300]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:21345 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54329 - "GET /stream-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54378 - "GET / HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:54451 - "HEAD /status HTTP/1.1" 401 Unauthorized

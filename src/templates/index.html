@@ -177,22 +177,27 @@
             }
         });
 
-        // Job Polling
-        setInterval(async () => {
+        // Job Updates via SSE
+        const eventSource = new EventSource('/stream-status');
+        eventSource.onmessage = function (event) {
             try {
-                const response = await fetch('/status');
-                const jobs = await response.json();
+                const jobs = JSON.parse(event.data);
                 renderJobs(jobs);
             } catch (e) {
-                console.error('Error:', e);
+                console.error("Error parsing SSE data", e);
             }
-        }, 1000);
+        };
+        eventSource.onerror = function (err) {
+            console.error("SSE Error:", err);
+            // Optional: fallback to polling if SSE fails permanently? 
+            // Browser auto-reconnects usually.
+        };
 
         function renderJobs(jobs) {
             const tbody = document.getElementById('job-table-body');
 
             if (jobs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No active or recent jobs</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No active or recent jobs</td></tr>';
                 return;
             }
 
@@ -225,7 +230,7 @@
                 // Progress Bar
                 const progress = job.progress || 0;
                 let progressHtml = `
-                    <div class="progress-container">
+                    <div class="progress-container" role="progressbar" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
                         <div class="progress-bar" style="width: ${progress}%"></div>
                         <span class="progress-text">${progress}%</span>
                     </div>
@@ -243,11 +248,11 @@
                 // Actions
                 let actions = '';
                 if (['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(job.status)) {
-                    actions = `<button onclick="stopJob('${job.id}')" class="btn-sm btn-stop">Stop</button>`;
+                    actions = `<button onclick="stopJob('${job.id}')" class="btn-sm btn-stop" aria-label="Stop Job ${job.id}">Stop</button>`;
                 } else {
                     actions = `
-                        <button onclick="restartJob('${job.id}')" class="btn-sm btn-restart">Restart</button>
-                        <button onclick="deleteJob('${job.id}')" class="btn-sm btn-delete">Remove</button>
+                        <button onclick="restartJob('${job.id}')" class="btn-sm btn-restart" aria-label="Restart Job ${job.id}">Restart</button>
+                        <button onclick="deleteJob('${job.id}')" class="btn-sm btn-delete" aria-label="Remove Job ${job.id}">Remove</button>
                     `;
                 }
 
