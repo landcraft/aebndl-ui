@@ -2,6 +2,14 @@
 
 A high-performance, containerized Web UI for the [aebn-vod-downloader](https://github.com/hyper440/aebn-vod-downloader).
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/dark-mode.png" alt="AEBN Downloader - Dark Mode" width="48%">
+  &nbsp; &nbsp;
+  <img src="assets/light-mode.png" alt="AEBN Downloader - Light Mode" width="48%">
+</p>
+
 ## Features
 - **Smart Source Tracking**: Automatically checks upstream for updates and rebuilds.
 - **Resilient**: Falls back to local backups if upstream is unreachable.
