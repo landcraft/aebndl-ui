@@ -7,3 +7,7 @@ INFO:     Uvicorn running on http://127.0.0.1:21345 (Press CTRL+C to quit)
 INFO:     127.0.0.1:54466 - "HEAD /status HTTP/1.1" 405 Method Not Allowed
 INFO:     127.0.0.1:54468 - "HEAD /stream-status HTTP/1.1" 405 Method Not Allowed
 INFO:     127.0.0.1:54477 - "GET /status HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [63227]
