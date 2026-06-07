@@ -2,6 +2,8 @@
 
 A high-performance, containerized Web UI for the [aebn-vod-downloader](https://github.com/hyper440/aebn-vod-downloader).
 
+> 🤖 **Vibe Coded**: This project was built and designed with [Antigravity](https://github.com/google/antigravity), Google's advanced agentic coding assistant.
+
 ## Screenshots
 
 <p align="center">
