@@ -13,9 +13,12 @@ A high-performance, containerized Web UI for the [aebn-vod-downloader](https://g
 </p>
 
 ## Features
+- **Modern Web Dashboard**: Completely redesigned, minimalist, mobile-responsive card-based UI.
+- **Dynamic Theming**: First-class support for both Light and Dark modes using OKLCH colors.
+- **Smart Defaults**: Easily queue specific scenes (defaults to Scene 1 to prevent accidental massive downloads).
+- **Backend Stability**: Fully refactored asynchronous FastAPI backend, compliant with modern Starlette requirements.
 - **Smart Source Tracking**: Automatically checks upstream for updates and rebuilds.
 - **Resilient**: Falls back to local backups if upstream is unreachable.
-- **Web Dashboard**: Clean interface to queue downloads.
 - **Containerized**: Runs anywhere with Docker.
 
 ## Usage
