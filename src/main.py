@@ -5,7 +5,11 @@ import subprocess
 import threading
 import asyncio
 import json
-from fastapi import FastAPI, Request, Form, BackgroundTasks
+import uuid
+import signal
+import pty
+import time
+from fastapi import FastAPI, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
@@ -45,7 +49,6 @@ class DownloadManager:
         self.history = {} # ID -> Job Dict (completed/failed)
         self.lock = threading.RLock()
         self.shutdown_event = threading.Event()
-        self.worker_threads = [] # Added for tracking worker threads
         
         # Start worker threads
         self.workers = []
@@ -55,7 +58,6 @@ class DownloadManager:
             self.workers.append(t)
 
     def add_job(self, url, threads, resolution, scene, output_dir):
-        import uuid
         job_id = str(uuid.uuid4())[:8]
         
         job = {
@@ -98,7 +100,6 @@ class DownloadManager:
                 job = self.active_jobs[job_id]
                 if job["status"] == "running" and job["process_obj"]:
                     try:
-                        import signal
                         # Try graceful shutdown first (Ctrl+C simulation) which aebn_dl handles
                         job["process_obj"].send_signal(signal.SIGINT)
                         job["message"] = "Stopping..."
@@ -115,7 +116,7 @@ class DownloadManager:
                         # Fallback to kill if needed (though wait loop usually handles this if we wanted to be robust)
                         try:
                             job["process_obj"].kill()
-                        except:
+                        except Exception:
                             pass
                 
                 # We don't remove immediately, user might want to see "Cancelled"
@@ -272,7 +273,6 @@ class DownloadManager:
             
             # Use PTY to force the subprocess to think it's in a real terminal
             # This ensures Rich prints the progress bars!
-            import pty
             master_fd, slave_fd = pty.openpty()
             
             # Run the process in the ISOLATED working directory
@@ -321,13 +321,9 @@ class DownloadManager:
             re_muxing = re.compile(r"Muxing streams")
             re_cleanup = re.compile(r"Deleted temp files")
             
-            current_audio_prog = 0
-            current_video_prog = 0
-            
             # Helper to read stream char by char/chunk to handle \r
             def read_stream(master_fd):
                 buffer = ""
-                decoder =  threading.local() # Just in case, but simple decode works
                 
                 while True:
                     try:
@@ -428,9 +424,7 @@ class DownloadManager:
                 # We track it but main status is driven by video if both active
                 m_audio = re_audio.search(clean_line)
                 if m_audio:
-                    current_audio_prog = int(m_audio.group(1))
-                    # Optional: Could update message to say "V: 50% A: 40%"?
-                    # For now keep simple
+                    pass
                     
                 # Phase 3: Merging & Muxing
                 m_merge = re_merging.search(clean_line)
@@ -498,7 +492,6 @@ class DownloadManager:
                 
             # Post-processing
             if job["status"] == "completed":
-                import time
                 time.sleep(5) # Give user a moment to see "Completed" status
                 with self.lock:
                     if job_id in self.active_jobs:
@@ -506,9 +499,6 @@ class DownloadManager:
                         self.active_jobs.pop(job_id)
             else:
                 # Failed/Error/Cancelled: Move to history so user can retry/inspect
-                with self.lock:
-                    if job_id in self.active_jobs:
-                         self.history[job_id] = self.active_jobs.pop(job_id)
                 with self.lock:
                     if job_id in self.active_jobs:
                          self.history[job_id] = self.active_jobs.pop(job_id)
@@ -533,12 +523,14 @@ async def index(request: Request):
 
 @app.post("/download")
 async def download(
-    background_tasks: BackgroundTasks, # Not used for logic, but keeps FastAPI happy/async
     url: str = Form(...),
     threads: int = Form(10),
     resolution: str = Form("720"), 
     scene: str = Form(None),
 ):
+    if not scene:
+        scene = "1"
+        
     # Get Download Dir from Env or Default
     output_dir = os.environ.get("DOWNLOAD_DIR", "./downloads")
     
@@ -594,7 +586,6 @@ async def system_info():
         # Read Manifest (from our tracker) for date/SHA
         manifest_path = os.path.join(PROJECT_ROOT, "manifest.json")
         if os.path.exists(manifest_path):
-            import json
             with open(manifest_path, 'r') as f:
                 data = json.load(f)
                 version = data.get("last_known_good_sha", "Unknown")[:7] # Short SHA

@@ -4,13 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AEBN VOD Downloader</title>
-    <link rel="stylesheet" href="/static/styles.css?v=2">
+    <title>AEBN Downloader</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
         rel="stylesheet">
 </head>
 
@@ -18,8 +18,7 @@
     <div class="container">
         <header>
             <h1>AEBN Downloader</h1>
-            <button id="theme-toggle" class="theme-toggle" title="Toggle Theme">
-                <!-- Simple SVG Icon (Sun/Moon) -->
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme">
                 <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
@@ -27,16 +26,15 @@
             </button>
         </header>
 
-        <!-- Layout: Vertical Stack -->
-        <div class="layout-stack">
-            <!-- Section 1: New Download -->
+        <main class="layout-stack">
+            <!-- New Download Form -->
             <section class="card">
-                <div class="card-header">New Download</div>
+                <div class="card-header">Queue Download</div>
                 <form id="download-form">
                     <div class="form-row">
-                        <div class="input-group" style="flex: 3;">
+                        <div class="input-group" style="flex: 4;">
                             <label for="url">Video URL</label>
-                            <input type="text" id="url" name="url" placeholder="https://aebn.net/..." required>
+                            <input type="url" id="url" name="url" placeholder="https://aebn.net/..." required>
                         </div>
 
                         <div class="input-group" style="flex: 1;">
@@ -44,7 +42,7 @@
                             <input type="number" id="threads" name="threads" value="10" min="1" max="20">
                         </div>
 
-                        <div class="input-group" style="flex: 1;">
+                        <div class="input-group" style="flex: 1.5;">
                             <label for="resolution">Resolution</label>
                             <select id="resolution" name="resolution">
                                 <option value="2160">4K</option>
@@ -56,50 +54,31 @@
                         </div>
 
                         <div class="input-group" style="flex: 1;">
-                            <label for="scene">Scene (Opt)</label>
+                            <label for="scene">Scene</label>
                             <input type="number" id="scene" name="scene" placeholder="1">
                         </div>
 
-                        <div class="input-group" style="flex: 0 0 auto; align-self: flex-end;">
+                        <div class="input-group" style="flex: 0 0 auto;">
                             <button type="submit" id="start-btn" class="btn">Queue</button>
                         </div>
                     </div>
                 </form>
             </section>
 
-            <!-- Section 2: Status Table -->
+            <!-- Active Jobs -->
             <section class="card">
-                <div class="card-header">Job Status</div>
-                <div class="table-responsive">
-                    <table class="status-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 12%">Status</th>
-                                <th style="width: 8%">Res</th>
-                                <th style="width: 8%">Scene</th>
-                                <th style="width: 32%">Name / URL</th>
-                                <th style="width: 15%">Progress</th>
-                                <th style="width: 10%">ETA</th>
-                                <th style="width: 15%">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="job-table-body">
-                            <tr>
-                                <td colspan="7" class="empty-state">No active jobs</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div class="card-header">Downloads</div>
+                <div id="job-list-container" class="job-list">
+                    <div class="empty-state">No active or recent downloads</div>
                 </div>
             </section>
+        </main>
 
-            <!-- Section 3: Footer -->
-            <div class="system-info">
-                <p>Core Version: <span id="sys-version">...</span></p>
-                <p>Last Update: <span id="sys-date">...</span></p>
-                <p style="margin-top: 0.5rem;"><a href="https://github.com/landcraft/aebndl-ui" target="_blank"
-                        class="repo-link">View Project on GitHub</a></p>
-            </div>
-        </div>
+        <footer class="system-info">
+            <span>Version: <span id="sys-version">...</span></span>
+            <span>Updated: <span id="sys-date">...</span></span>
+            <a href="https://github.com/landcraft/aebndl-ui" target="_blank" rel="noopener">GitHub</a>
+        </footer>
     </div>
 
     <script>
@@ -108,7 +87,6 @@
         const themeIcon = document.getElementById('theme-icon');
         const root = document.documentElement;
 
-        // Icons
         const moonIcon = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
         const sunIcon = '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
 
@@ -116,7 +94,6 @@
             themeIcon.innerHTML = isLight ? sunIcon : moonIcon;
         }
 
-        // Load Saved Theme or System Preference
         const savedTheme = localStorage.getItem('theme');
         const systemPrefersLight = window.matchMedia('(prefers-color-scheme: light)');
 
@@ -130,25 +107,21 @@
             }
         }
 
-        // Initialize
         if (savedTheme) {
             applyTheme(savedTheme === 'light');
         } else {
             applyTheme(systemPrefersLight.matches);
         }
 
-        // Listen for system changes (only if no manual override)
         systemPrefersLight.addEventListener('change', (e) => {
             if (!localStorage.getItem('theme')) {
                 applyTheme(e.matches);
             }
         });
 
-        // Toggle Button
         themeToggle.addEventListener('click', () => {
             const isLightCurrently = root.classList.contains('light-mode');
             const newIsLight = !isLightCurrently;
-
             applyTheme(newIsLight);
             localStorage.setItem('theme', newIsLight ? 'light' : 'dark');
         });
@@ -158,7 +131,7 @@
             e.preventDefault();
             const btn = document.getElementById('start-btn');
             btn.disabled = true;
-            btn.textContent = '...';
+            btn.textContent = 'Queueing...';
 
             const formData = new FormData(e.target);
             try {
@@ -187,102 +160,101 @@
                 console.error("Error parsing SSE data", e);
             }
         };
-        eventSource.onerror = function (err) {
-            console.error("SSE Error:", err);
-            // Optional: fallback to polling if SSE fails permanently? 
-            // Browser auto-reconnects usually.
-        };
 
         function renderJobs(jobs) {
-            const tbody = document.getElementById('job-table-body');
+            const container = document.getElementById('job-list-container');
 
             if (jobs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No active or recent jobs</td></tr>';
+                container.innerHTML = '<div class="empty-state">No active or recent downloads</div>';
                 return;
             }
 
-            tbody.innerHTML = '';
+            container.innerHTML = '';
 
-            // Sort: Running > Queued > History
             const running = jobs.filter(j => ['running', 'downloading', 'muxing', 'scraping', 'cleaning'].includes(j.status));
             const queued = jobs.filter(j => j.status === 'queued');
             const history = jobs.filter(j => !['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(j.status));
 
-            const displayJobs = [
-                ...running,
-                ...queued,
-                ...history.reverse()
-            ];
+            const displayJobs = [...running, ...queued, ...history.reverse()];
 
             displayJobs.forEach(job => {
-                const tr = document.createElement('tr');
+                const item = document.createElement('div');
+                item.className = 'job-item';
 
                 // Status Badge
-                let badgeClass = 'badge-default';
+                let badgeClass = 'badge-queued';
                 if (['running', 'downloading'].includes(job.status)) badgeClass = 'badge-running';
                 else if (job.status === 'muxing') badgeClass = 'badge-muxing';
                 else if (job.status === 'scraping') badgeClass = 'badge-scraping';
                 else if (job.status === 'cleaning') badgeClass = 'badge-cleaning';
                 else if (job.status === 'completed') badgeClass = 'badge-success';
                 else if (job.status === 'failed' || job.status === 'error') badgeClass = 'badge-error';
-                else if (job.status === 'queued') badgeClass = 'badge-queued';
 
-                // Progress Bar
+                // Progress UI
                 const progress = job.progress || 0;
-                let progressHtml = `
-                    <div class="progress-container" role="progressbar" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
-                        <div class="progress-bar" style="width: ${progress}%"></div>
-                        <span class="progress-text">${progress}%</span>
-                    </div>
-                `;
-                if (job.status === 'error' || job.status === 'failed') {
-                    progressHtml = `<span class="error-text">${job.message}</span>`;
-                } else if (job.status === 'queued') {
-                    progressHtml = `<span class="queued-text">Waiting...</span>`;
-                } else if (job.status === 'scraping') {
-                    progressHtml = `<span class="queued-text">Fetching Metadata...</span>`;
-                } else if (job.status === 'cleaning') {
-                    progressHtml = `<span class="progress-text">Cleaning up...</span>`;
-                }
+                let progressMsg = `${progress}%`;
+                let etaMsg = job.eta ? `ETA: ${job.eta}` : '';
+                let progressClass = '';
 
-                // Actions
-                let actions = '';
-                if (['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(job.status)) {
-                    actions = `<button onclick="stopJob('${job.id}')" class="btn-sm btn-stop" aria-label="Stop Job ${job.id}">Stop</button>`;
-                } else {
-                    actions = `
-                        <button onclick="restartJob('${job.id}')" class="btn-sm btn-restart" aria-label="Restart Job ${job.id}">Restart</button>
-                        <button onclick="deleteJob('${job.id}')" class="btn-sm btn-delete" aria-label="Remove Job ${job.id}">Remove</button>
-                    `;
+                if (job.status === 'error' || job.status === 'failed') {
+                    progressMsg = job.message;
+                    etaMsg = '';
+                    progressClass = 'error-text';
+                } else if (job.status === 'queued') {
+                    progressMsg = 'Waiting in queue...';
+                } else if (job.status === 'scraping') {
+                    progressMsg = 'Fetching Metadata...';
+                } else if (job.status === 'cleaning') {
+                    progressMsg = 'Cleaning up files...';
+                } else if (job.status === 'completed') {
+                    progressMsg = 'Download complete';
                 }
 
                 const res = job.resolution || '-';
                 const displayRes = res.toString().includes('p') ? res : res + 'p';
                 const displayName = job.title ? job.title : job.url;
-                const scene = job.scene || '-';
-                const eta = job.eta || '-';
+                const scene = job.scene ? `Scene ${job.scene}` : 'Full Video';
 
-                tr.innerHTML = `
-                    <td><span class="badge ${badgeClass}">${job.status.toUpperCase()}</span></td>
-                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${displayRes}</span></td>
-                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${scene}</span></td>
-                    <td><div class="job-name" title="${job.url}">${displayName}</div></td>
-                    <td>${progressHtml}</td>
-                    <td><span style="color: var(--text-secondary); font-size: 0.85rem;">${eta}</span></td>
-                    <td>${actions}</td>
+                // Actions
+                let actions = '';
+                if (['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(job.status)) {
+                    actions = `<button onclick="stopJob('${job.id}')" class="btn btn-sm btn-stop" aria-label="Stop Job">Stop</button>`;
+                } else {
+                    actions = `
+                        <button onclick="restartJob('${job.id}')" class="btn btn-sm btn-restart" aria-label="Restart Job">Restart</button>
+                        <button onclick="deleteJob('${job.id}')" class="btn btn-sm btn-delete" aria-label="Remove Job">Remove</button>
+                    `;
+                }
+
+                item.innerHTML = `
+                    <div><span class="badge ${badgeClass}">${job.status}</span></div>
+                    <div class="job-meta">
+                        <div class="job-name" title="${job.url}">${displayName}</div>
+                        <div class="job-details">
+                            <span>${displayRes}</span> &bull; <span>${scene}</span>
+                        </div>
+                    </div>
+                    <div class="job-progress-col">
+                        <div class="progress-info ${progressClass}">
+                            <span>${progressMsg}</span>
+                            <span>${etaMsg}</span>
+                        </div>
+                        <div class="progress-container" role="progressbar" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar" style="width: ${progress}%"></div>
+                        </div>
+                    </div>
+                    <div class="job-actions">${actions}</div>
                 `;
-                tbody.appendChild(tr);
+                container.appendChild(item);
             });
         }
 
-        // Actions
         async function stopJob(id) {
-            if (!confirm('Stop?')) return;
+            if (!confirm('Stop download?')) return;
             await fetch(`/cancel/${id}`, { method: 'POST' });
         }
 
         async function restartJob(id) {
-            if (!confirm('Restart?')) return;
             await fetch(`/restart/${id}`, { method: 'POST' });
         }
 
@@ -290,7 +262,6 @@
             await fetch(`/delete/${id}`, { method: 'DELETE' });
         }
 
-        // System Info
         window.addEventListener('load', async () => {
             try {
                 const res = await fetch('/system-info');
