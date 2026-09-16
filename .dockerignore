@@ -1,0 +1,13 @@
+.venv
+venv
+.git
+.gitignore
+.github
+temp/
+backups/
+*.log
+__pycache__
+.DS_Store
+tests/
+Dockerfile
+docker-compose.yml

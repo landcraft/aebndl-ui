@@ -5,71 +5,134 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AEBN Downloader</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <link rel="stylesheet" href="/static/styles.css?v=4">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 
 <body>
     <div class="container">
         <header>
-            <h1>AEBN Downloader</h1>
-            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme">
-                <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                </svg>
-            </button>
+            <div class="header-left">
+                <h1>AEBN Downloader</h1>
+                <div id="connection-badge" class="connection-badge connected" title="Real-time SSE Connection">
+                    <span class="dot"></span>
+                    <span id="connection-text">Live</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme" title="Toggle Theme">
+                    <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
+            </div>
         </header>
 
         <main class="layout-stack">
-            <!-- New Download Form -->
+            <!-- Queue Download Form -->
             <section class="card">
-                <div class="card-header">Queue Download</div>
+                <div class="card-header-flex">
+                    <h2 class="card-title">Queue Download</h2>
+                </div>
                 <form id="download-form">
-                    <div class="form-row">
-                        <div class="input-group" style="flex: 4;">
+                    <div class="form-row-primary">
+                        <div class="input-group" style="flex: 5;">
                             <label for="url">Video URL</label>
-                            <input type="url" id="url" name="url" placeholder="https://aebn.net/..." required>
+                            <div class="input-with-button">
+                                <input type="url" id="url" name="url" placeholder="https://aebn.net/..." required autocomplete="off">
+                                <button type="button" id="paste-btn" class="btn-inline-paste" title="Paste URL from clipboard">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                                    </svg>
+                                    Paste
+                                </button>
+                            </div>
                         </div>
 
-                        <div class="input-group" style="flex: 1;">
-                            <label for="threads">Threads</label>
-                            <input type="number" id="threads" name="threads" value="10" min="1" max="20">
-                        </div>
-
-                        <div class="input-group" style="flex: 1.5;">
-                            <label for="resolution">Resolution</label>
-                            <select id="resolution" name="resolution">
-                                <option value="2160">4K</option>
-                                <option value="1440">1440p</option>
-                                <option value="1080">1080p</option>
-                                <option value="720" selected>720p</option>
-                                <option value="480">480p</option>
-                            </select>
-                        </div>
-
-                        <div class="input-group" style="flex: 1;">
+                        <div class="input-group" style="flex: 1.2;">
                             <label for="scene">Scene</label>
-                            <input type="number" id="scene" name="scene" placeholder="1">
+                            <input type="number" id="scene" name="scene" value="1" min="1" placeholder="1">
                         </div>
 
                         <div class="input-group" style="flex: 0 0 auto;">
-                            <button type="submit" id="start-btn" class="btn">Queue</button>
+                            <button type="submit" id="start-btn" class="btn">
+                                <span id="start-btn-text">Queue</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Collapsible Advanced Options -->
+                    <div class="advanced-options-toggle">
+                        <button type="button" id="toggle-adv-btn" class="btn-toggle-adv" aria-expanded="false">
+                            <span>⚙ Advanced Options</span>
+                            <span id="adv-caret" class="adv-caret">▼</span>
+                        </button>
+                    </div>
+
+                    <div id="advanced-options-panel" class="advanced-options-panel">
+                        <div class="adv-grid">
+                            <div class="input-group">
+                                <label for="resolution">Target Resolution</label>
+                                <select id="resolution" name="resolution">
+                                    <option value="2160">4K (2160p)</option>
+                                    <option value="1440">1440p</option>
+                                    <option value="1080">1080p</option>
+                                    <option value="720" selected>720p (Default)</option>
+                                    <option value="480">480p</option>
+                                    <option value="0">Lowest Available</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="threads">Download Threads</label>
+                                <input type="number" id="threads" name="threads" value="10" min="1" max="32">
+                            </div>
+                        </div>
+
+                        <div class="adv-toggles">
+                            <label class="checkbox-label" title="Download each scene as an independent video file">
+                                <input type="checkbox" id="split_scenes" name="split_scenes" value="true">
+                                <span>Split All Scenes into Separate Files</span>
+                            </label>
+
+                            <label class="checkbox-label" title="Append performer names to filename">
+                                <input type="checkbox" id="names" name="names" value="true">
+                                <span>Include Performer Names in Filename</span>
+                            </label>
+
+                            <label class="checkbox-label" title="Download movie cover art alongside video">
+                                <input type="checkbox" id="covers" name="covers" value="true">
+                                <span>Download Cover Images</span>
+                            </label>
                         </div>
                     </div>
                 </form>
             </section>
 
-            <!-- Active Jobs -->
+            <!-- Downloads List -->
             <section class="card">
-                <div class="card-header">Downloads</div>
+                <div class="card-header-flex">
+                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <h2 class="card-title">Downloads</h2>
+                        <div class="tabs-bar" role="tablist">
+                            <button class="tab-btn active" data-tab="all">All <span class="tab-count" id="count-all">0</span></button>
+                            <button class="tab-btn" data-tab="active">Active <span class="tab-count" id="count-active">0</span></button>
+                            <button class="tab-btn" data-tab="completed">Completed <span class="tab-count" id="count-completed">0</span></button>
+                            <button class="tab-btn" data-tab="failed">Failed <span class="tab-count" id="count-failed">0</span></button>
+                        </div>
+                    </div>
+                    <div id="clear-completed-container" style="display: none;">
+                        <button id="clear-completed-btn" class="btn-clear-completed" title="Dismiss all completed downloads">Clear Completed</button>
+                    </div>
+                </div>
+
                 <div id="job-list-container" class="job-list">
-                    <div class="empty-state">No active or recent downloads</div>
+                    <div class="empty-state">No downloads in queue</div>
                 </div>
             </section>
         </main>
@@ -77,12 +140,41 @@
         <footer class="system-info">
             <span>Version: <span id="sys-version">...</span></span>
             <span>Updated: <span id="sys-date">...</span></span>
+            <span id="sys-auth"></span>
             <a href="https://github.com/landcraft/aebndl-ui" target="_blank" rel="noopener">GitHub</a>
         </footer>
     </div>
 
+    <!-- Terminal Log Viewer Modal -->
+    <div id="logs-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modal-title">Job Logs</h3>
+                <div class="modal-actions">
+                    <button id="copy-logs-btn" class="btn-sm" title="Copy raw logs to clipboard">Copy Logs</button>
+                    <button id="close-logs-btn" class="btn-sm" title="Close modal">✕</button>
+                </div>
+            </div>
+            <div id="terminal-content" class="terminal-window">Loading logs...</div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container"></div>
+
     <script>
-        // Theme Logic
+        // DOM-Safe HTML Escaping Utility
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // Theme Toggle Logic
         const themeToggle = document.getElementById('theme-toggle');
         const themeIcon = document.getElementById('theme-icon');
         const root = document.documentElement;
@@ -126,78 +218,244 @@
             localStorage.setItem('theme', newIsLight ? 'light' : 'dark');
         });
 
-        // Form Submission
-        document.getElementById('download-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('start-btn');
-            btn.disabled = true;
-            btn.textContent = 'Queueing...';
+        // Toast Helper
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type === 'success' ? 'toast-success' : type === 'error' ? 'toast-error' : ''}`;
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => {
+                if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 4000);
+        }
 
-            const formData = new FormData(e.target);
+        // Advanced Options Toggle
+        const toggleAdvBtn = document.getElementById('toggle-adv-btn');
+        const advPanel = document.getElementById('advanced-options-panel');
+        const advCaret = document.getElementById('adv-caret');
+
+        toggleAdvBtn.addEventListener('click', () => {
+            const isOpen = advPanel.classList.toggle('open');
+            advCaret.classList.toggle('open', isOpen);
+            toggleAdvBtn.setAttribute('aria-expanded', isOpen);
+        });
+
+        // Clipboard Paste Helper
+        const pasteBtn = document.getElementById('paste-btn');
+        const urlInput = document.getElementById('url');
+
+        pasteBtn.addEventListener('click', async () => {
+            try {
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    const text = await navigator.clipboard.readText();
+                    if (text && text.trim()) {
+                        urlInput.value = text.trim();
+                        urlInput.focus();
+                        showToast('Pasted URL from clipboard', 'info');
+                    } else {
+                        showToast('Clipboard is empty', 'info');
+                    }
+                } else {
+                    urlInput.focus();
+                    showToast('Clipboard access unavailable, please paste manually', 'info');
+                }
+            } catch (err) {
+                urlInput.focus();
+                showToast('Clipboard permission denied', 'info');
+            }
+        });
+
+        // Form Submission
+        const form = document.getElementById('download-form');
+        const startBtn = document.getElementById('start-btn');
+        const startBtnText = document.getElementById('start-btn-text');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const rawUrl = urlInput.value.trim();
+            if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+                showToast('URL must start with http:// or https://', 'error');
+                urlInput.focus();
+                return;
+            }
+
+            startBtn.disabled = true;
+            startBtnText.textContent = 'Queueing...';
+
+            const formData = new FormData(form);
             try {
                 const response = await fetch('/download', {
                     method: 'POST',
                     body: formData
                 });
-                await response.json();
-                document.getElementById('url').value = '';
-                document.getElementById('scene').value = '';
+                const resData = await response.json();
+                if (!response.ok) {
+                    throw new Error(resData.detail || 'Failed to queue download');
+                }
+                urlInput.value = '';
+                document.getElementById('scene').value = '1';
+                showToast('✓ Download queued successfully', 'success');
             } catch (error) {
-                alert('Error: ' + error);
+                showToast(`Error: ${error.message}`, 'error');
             } finally {
-                btn.disabled = false;
-                btn.textContent = 'Queue';
+                startBtn.disabled = false;
+                startBtnText.textContent = 'Queue';
             }
         });
 
-        // Job Updates via SSE
-        const eventSource = new EventSource('/stream-status');
-        eventSource.onmessage = function (event) {
+        // Filter Tabs Logic
+        let currentTab = 'all';
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                tabButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTab = btn.getAttribute('data-tab');
+                if (window.lastJobs) renderJobs(window.lastJobs);
+            });
+        });
+
+        // Clear Completed Handler
+        const clearCompletedBtn = document.getElementById('clear-completed-btn');
+        clearCompletedBtn.addEventListener('click', async () => {
             try {
-                const jobs = JSON.parse(event.data);
-                renderJobs(jobs);
+                await fetch('/clear-completed', { method: 'POST' });
+                showToast('Cleared completed downloads', 'info');
             } catch (e) {
-                console.error("Error parsing SSE data", e);
+                showToast('Failed to clear completed downloads', 'error');
             }
-        };
+        });
+
+        // Connection State
+        const connectionBadge = document.getElementById('connection-badge');
+        const connectionText = document.getElementById('connection-text');
+
+        function setConnectionState(state) {
+            if (state === 'connected') {
+                connectionBadge.className = 'connection-badge connected';
+                connectionText.textContent = 'Live';
+            } else {
+                connectionBadge.className = 'connection-badge reconnecting';
+                connectionText.textContent = 'Reconnecting...';
+            }
+        }
+
+        // Auto-Dismiss Timer Tracking (Client-Side)
+        const completedTimestamps = new Map();
+
+        // SSE Real-time Updates
+        let eventSource = null;
+        function connectSSE() {
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource('/stream-status');
+
+            eventSource.onopen = () => {
+                setConnectionState('connected');
+            };
+
+            eventSource.onerror = () => {
+                setConnectionState('reconnecting');
+            };
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const jobs = JSON.parse(event.data);
+                    window.lastJobs = jobs;
+                    renderJobs(jobs);
+                } catch (e) {
+                    console.error("Error parsing SSE data", e);
+                }
+            };
+        }
+
+        connectSSE();
+
+        // Periodic check to countdown completed jobs
+        setInterval(() => {
+            if (window.lastJobs && window.lastJobs.some(j => j.status === 'completed')) {
+                renderJobs(window.lastJobs);
+            }
+        }, 1000);
 
         function renderJobs(jobs) {
             const container = document.getElementById('job-list-container');
+            const now = Math.floor(Date.now() / 1000);
 
-            if (jobs.length === 0) {
-                container.innerHTML = '<div class="empty-state">No active or recent downloads</div>';
+            // Update Counts
+            const running = jobs.filter(j => ['running', 'downloading', 'muxing', 'scraping', 'cleaning'].includes(j.status));
+            const queued = jobs.filter(j => j.status === 'queued');
+            const activeJobs = [...running, ...queued];
+            const completedJobs = jobs.filter(j => j.status === 'completed');
+            const failedJobs = jobs.filter(j => ['failed', 'error', 'cancelled'].includes(j.status));
+
+            document.getElementById('count-all').textContent = jobs.length;
+            document.getElementById('count-active').textContent = activeJobs.length;
+            document.getElementById('count-completed').textContent = completedJobs.length;
+            document.getElementById('count-failed').textContent = failedJobs.length;
+
+            const clearCompletedContainer = document.getElementById('clear-completed-container');
+            clearCompletedContainer.style.display = completedJobs.length > 0 ? 'block' : 'none';
+
+            // Filter by active tab
+            let displayJobs = [];
+            if (currentTab === 'active') {
+                displayJobs = activeJobs;
+            } else if (currentTab === 'completed') {
+                displayJobs = completedJobs;
+            } else if (currentTab === 'failed') {
+                displayJobs = failedJobs;
+            } else {
+                displayJobs = [...running, ...queued, ...completedJobs, ...failedJobs];
+            }
+
+            if (displayJobs.length === 0) {
+                container.innerHTML = `<div class="empty-state">No downloads in this view</div>`;
                 return;
             }
 
             container.innerHTML = '';
 
-            const running = jobs.filter(j => ['running', 'downloading', 'muxing', 'scraping', 'cleaning'].includes(j.status));
-            const queued = jobs.filter(j => j.status === 'queued');
-            const history = jobs.filter(j => !['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(j.status));
-
-            const displayJobs = [...running, ...queued, ...history.reverse()];
-
             displayJobs.forEach(job => {
                 const item = document.createElement('div');
                 item.className = 'job-item';
+                item.id = `job-${escapeHtml(job.id)}`;
 
-                // Status Badge
+                // Badge determination
                 let badgeClass = 'badge-queued';
                 if (['running', 'downloading'].includes(job.status)) badgeClass = 'badge-running';
                 else if (job.status === 'muxing') badgeClass = 'badge-muxing';
                 else if (job.status === 'scraping') badgeClass = 'badge-scraping';
                 else if (job.status === 'cleaning') badgeClass = 'badge-cleaning';
                 else if (job.status === 'completed') badgeClass = 'badge-success';
-                else if (job.status === 'failed' || job.status === 'error') badgeClass = 'badge-error';
+                else if (['failed', 'error', 'cancelled'].includes(job.status)) badgeClass = 'badge-error';
 
-                // Progress UI
+                // Progress Info
                 const progress = job.progress || 0;
                 let progressMsg = `${progress}%`;
-                let etaMsg = job.eta ? `ETA: ${job.eta}` : '';
+                let etaMsg = job.eta ? `ETA: ${escapeHtml(job.eta)}` : '';
                 let progressClass = '';
+                let isCompleted = job.status === 'completed';
 
-                if (job.status === 'error' || job.status === 'failed') {
-                    progressMsg = job.message;
+                // Auto-dismiss countdown calculation
+                let autoDismissHtml = '';
+                if (isCompleted) {
+                    if (!completedTimestamps.has(job.id)) {
+                        completedTimestamps.set(job.id, job.completed_at ? Math.floor(job.completed_at) : now);
+                    }
+                    const compTime = completedTimestamps.get(job.id);
+                    const elapsedSec = now - compTime;
+                    const remainingSec = Math.max(0, 60 - elapsedSec);
+
+                    if (remainingSec === 0) {
+                        // Auto-dismiss triggered: remove quietly
+                        deleteJob(job.id, false);
+                        return;
+                    }
+                    autoDismissHtml = `<span class="auto-dismiss-text">Auto-dismissing in ${remainingSec}s</span>`;
+                    progressMsg = 'Completed';
+                } else if (job.status === 'error' || job.status === 'failed') {
+                    progressMsg = job.message ? escapeHtml(job.message) : 'Failed';
                     etaMsg = '';
                     progressClass = 'error-text';
                 } else if (job.status === 'queued') {
@@ -205,33 +463,41 @@
                 } else if (job.status === 'scraping') {
                     progressMsg = 'Fetching Metadata...';
                 } else if (job.status === 'cleaning') {
-                    progressMsg = 'Cleaning up files...';
-                } else if (job.status === 'completed') {
-                    progressMsg = 'Download complete';
+                    progressMsg = 'Cleaning up...';
                 }
 
                 const res = job.resolution || '-';
                 const displayRes = res.toString().includes('p') ? res : res + 'p';
-                const displayName = job.title ? job.title : job.url;
-                const scene = job.scene ? `Scene ${job.scene}` : 'Full Video';
+                const displayName = job.title ? escapeHtml(job.title) : escapeHtml(job.url);
+                const scene = job.split_scenes ? 'All Scenes' : (job.scene ? `Scene ${escapeHtml(job.scene)}` : 'Full Video');
 
-                // Actions
-                let actions = '';
+                // Action Buttons
+                let actionsHtml = '';
                 if (['running', 'downloading', 'muxing', 'scraping', 'cleaning', 'queued'].includes(job.status)) {
-                    actions = `<button onclick="stopJob('${job.id}')" class="btn btn-sm btn-stop" aria-label="Stop Job">Stop</button>`;
+                    actionsHtml = `
+                        <button onclick="viewLogs('${escapeHtml(job.id)}')" class="btn-sm btn-logs" title="View live logs">Logs</button>
+                        <button onclick="stopJob('${escapeHtml(job.id)}')" class="btn-sm btn-stop" title="Stop download">Stop</button>
+                    `;
+                } else if (isCompleted) {
+                    actionsHtml = `
+                        <button onclick="viewLogs('${escapeHtml(job.id)}')" class="btn-sm btn-logs" title="View logs">Logs</button>
+                        <button onclick="deleteJob('${escapeHtml(job.id)}', false)" class="btn-sm" title="Dismiss">Dismiss</button>
+                    `;
                 } else {
-                    actions = `
-                        <button onclick="restartJob('${job.id}')" class="btn btn-sm btn-restart" aria-label="Restart Job">Restart</button>
-                        <button onclick="deleteJob('${job.id}')" class="btn btn-sm btn-delete" aria-label="Remove Job">Remove</button>
+                    actionsHtml = `
+                        <button onclick="viewLogs('${escapeHtml(job.id)}')" class="btn-sm btn-logs" title="View failure logs">Logs</button>
+                        <button onclick="restartJob('${escapeHtml(job.id)}')" class="btn-sm btn-restart" title="Retry download">Retry</button>
+                        <button onclick="deleteJob('${escapeHtml(job.id)}', false)" class="btn-sm" title="Remove job">Remove</button>
                     `;
                 }
 
                 item.innerHTML = `
-                    <div><span class="badge ${badgeClass}">${job.status}</span></div>
+                    <div><span class="badge ${badgeClass}">${escapeHtml(job.status)}</span></div>
                     <div class="job-meta">
-                        <div class="job-name" title="${job.url}">${displayName}</div>
+                        <div class="job-name" title="${escapeHtml(job.url)}">${displayName}</div>
                         <div class="job-details">
-                            <span>${displayRes}</span> &bull; <span>${scene}</span>
+                            <span>${escapeHtml(displayRes)}</span> &bull; <span>${scene}</span>
+                            ${autoDismissHtml}
                         </div>
                     </div>
                     <div class="job-progress-col">
@@ -240,34 +506,132 @@
                             <span>${etaMsg}</span>
                         </div>
                         <div class="progress-container" role="progressbar" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
-                            <div class="progress-bar" style="width: ${progress}%"></div>
+                            <div class="progress-bar ${isCompleted ? 'success-bar' : ''}" style="width: ${progress}%"></div>
                         </div>
                     </div>
-                    <div class="job-actions">${actions}</div>
+                    <div class="job-actions">${actionsHtml}</div>
                 `;
+
                 container.appendChild(item);
             });
         }
 
+        // Job Operations
         async function stopJob(id) {
-            if (!confirm('Stop download?')) return;
-            await fetch(`/cancel/${id}`, { method: 'POST' });
+            try {
+                await fetch(`/cancel/${encodeURIComponent(id)}`, { method: 'POST' });
+                showToast('Cancelling download...', 'info');
+            } catch (e) {
+                showToast('Failed to cancel job', 'error');
+            }
         }
 
         async function restartJob(id) {
-            await fetch(`/restart/${id}`, { method: 'POST' });
+            try {
+                const res = await fetch(`/restart/${encodeURIComponent(id)}`, { method: 'POST' });
+                if (res.ok) {
+                    showToast('Restarting download...', 'info');
+                } else {
+                    showToast('Failed to restart job', 'error');
+                }
+            } catch (e) {
+                showToast('Error restarting job', 'error');
+            }
         }
 
-        async function deleteJob(id) {
-            await fetch(`/delete/${id}`, { method: 'DELETE' });
+        async function deleteJob(id, notify = true) {
+            try {
+                await fetch(`/delete/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                completedTimestamps.delete(id);
+                if (notify) showToast('Job removed', 'info');
+            } catch (e) {
+                if (notify) showToast('Failed to remove job', 'error');
+            }
         }
 
+        // Log Viewer Modal Logic
+        const logsModal = document.getElementById('logs-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const terminalContent = document.getElementById('terminal-content');
+        const closeLogsBtn = document.getElementById('close-logs-btn');
+        const copyLogsBtn = document.getElementById('copy-logs-btn');
+        let activeLogJobId = null;
+        let logPollInterval = null;
+
+        async function viewLogs(id) {
+            activeLogJobId = id;
+            modalTitle.textContent = `Job Logs [${escapeHtml(id)}]`;
+            terminalContent.textContent = 'Loading logs...';
+            logsModal.classList.add('open');
+
+            await fetchAndRenderLogs(id);
+
+            if (logPollInterval) clearInterval(logPollInterval);
+            logPollInterval = setInterval(() => {
+                if (activeLogJobId === id && logsModal.classList.contains('open')) {
+                    fetchAndRenderLogs(id);
+                }
+            }, 1500);
+        }
+
+        async function fetchAndRenderLogs(id) {
+            try {
+                const res = await fetch(`/logs/${encodeURIComponent(id)}`);
+                if (!res.ok) {
+                    terminalContent.textContent = 'No logs available for this job.';
+                    return;
+                }
+                const data = await res.json();
+                if (data.logs && data.logs.length > 0) {
+                    const wasAtBottom = terminalContent.scrollHeight - terminalContent.scrollTop <= terminalContent.clientHeight + 50;
+                    terminalContent.textContent = data.logs.join('\n');
+                    if (wasAtBottom) {
+                        terminalContent.scrollTop = terminalContent.scrollHeight;
+                    }
+                } else {
+                    terminalContent.textContent = 'Log buffer is empty.';
+                }
+            } catch (e) {
+                terminalContent.textContent = `Error fetching logs: ${e.message}`;
+            }
+        }
+
+        function closeLogsModal() {
+            logsModal.classList.remove('open');
+            activeLogJobId = null;
+            if (logPollInterval) clearInterval(logPollInterval);
+        }
+
+        closeLogsBtn.addEventListener('click', closeLogsModal);
+        logsModal.addEventListener('click', (e) => {
+            if (e.target === logsModal) closeLogsModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && logsModal.classList.contains('open')) {
+                closeLogsModal();
+            }
+        });
+
+        copyLogsBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(terminalContent.textContent);
+                showToast('✓ Logs copied to clipboard', 'info');
+            } catch (e) {
+                showToast('Failed to copy logs', 'error');
+            }
+        });
+
+        // Load System Info on Page Load
         window.addEventListener('load', async () => {
             try {
                 const res = await fetch('/system-info');
                 const data = await res.json();
                 document.getElementById('sys-version').textContent = data.version;
                 document.getElementById('sys-date').textContent = data.date;
+                if (data.auth_enabled) {
+                    document.getElementById('sys-auth').textContent = '• Auth: Active';
+                }
             } catch (e) {
                 console.error(e);
             }

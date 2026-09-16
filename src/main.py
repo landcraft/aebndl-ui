@@ -7,61 +7,121 @@ import asyncio
 import json
 import uuid
 import signal
-import pty
 import time
+import logging
+from collections import deque
+from contextlib import asynccontextmanager
+import secrets
+from typing import Optional
+
 # pyrefly: ignore [missing-import]
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, HTTPException, Depends, status
+# pyrefly: ignore [missing-import]
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 # pyrefly: ignore [missing-import]
 from fastapi.templating import Jinja2Templates
 # pyrefly: ignore [missing-import]
 from fastapi.staticfiles import StaticFiles
 # pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
-import logging
+
+try:
+    import pty
+    HAS_PTY = True
+except ImportError:
+    pty = None
+    HAS_PTY = False
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aebndl-ui")
 
-app = FastAPI()
+# Optional HTTP Basic Authentication
+AUTH_USERNAME = os.environ.get("AUTH_USERNAME")
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD")
+AUTH_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
+security = HTTPBasic(auto_error=False) if AUTH_ENABLED else None
 
+async def verify_auth(credentials: Optional[HTTPBasicCredentials] = Depends(security) if AUTH_ENABLED else None):
+    if not AUTH_ENABLED:
+        return True
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    is_user_ok = secrets.compare_digest(credentials.username, AUTH_USERNAME)
+    is_pass_ok = secrets.compare_digest(credentials.password, AUTH_PASSWORD)
+    if not (is_user_ok and is_pass_ok):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return True
 
-
-# Mount Static and Templates
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Note: In docker, we might need to adjust paths, but for now assuming src structure
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
-
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    if os.path.exists(os.path.join(BASE_DIR, "static", "favicon.svg")):
-        return FileResponse(os.path.join(BASE_DIR, "static", "favicon.svg"))
-    return JSONResponse(content={}, status_code=404)
-
-# Determine Source Path (for System Info)
-# Assuming 'source' is at the root of the project, one level up from 'src'
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 SOURCE_DIR = os.path.join(PROJECT_ROOT, "source")
+TEMP_BASE = os.path.realpath(os.path.join(PROJECT_ROOT, "temp"))
 
 # Download Manager
 class DownloadManager:
     def __init__(self, max_concurrent=2):
         self.max_concurrent = max_concurrent
-        self.queue = [] # List of job_ids waiting
-        self.active_jobs = {} # ID -> Job Dict
-        self.history = {} # ID -> Job Dict (completed/failed)
+        self.queue = []  # List of job_ids waiting
+        self.active_jobs = {}  # ID -> Job Dict
+        self.history = {}  # ID -> Job Dict (completed/failed/cancelled)
         self.lock = threading.RLock()
         self.shutdown_event = threading.Event()
+        self._subscribers: set[asyncio.Queue] = set()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Start worker threads
         self.workers = []
-        for i in range(max_concurrent):
+        for _ in range(max_concurrent):
             t = threading.Thread(target=self._worker_loop, daemon=True)
             t.start()
             self.workers.append(t)
 
-    def add_job(self, url, threads, resolution, scene, output_dir):
+    def set_loop(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+
+    def add_subscriber(self, queue: asyncio.Queue):
+        with self.lock:
+            self._subscribers.add(queue)
+
+    def remove_subscriber(self, queue: asyncio.Queue):
+        with self.lock:
+            self._subscribers.discard(queue)
+
+    def notify_change(self):
+        """Broadcast updated job status to all connected SSE clients."""
+        if not self._loop or self._loop.is_closed():
+            return
+        status_data = self.get_status()
+        with self.lock:
+            subs = list(self._subscribers)
+        for q in subs:
+            try:
+                self._loop.call_soon_threadsafe(self._safe_queue_put, q, status_data)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _safe_queue_put(q: asyncio.Queue, data):
+        try:
+            if q.full():
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+            q.put_nowait(data)
+        except Exception:
+            pass
+
+    def add_job(self, url, threads, resolution, scene, output_dir, names=False, covers=False, split_scenes=False):
         job_id = str(uuid.uuid4())[:8]
         
         job = {
@@ -70,139 +130,152 @@ class DownloadManager:
             "threads": threads,
             "resolution": resolution,
             "scene": scene,
+            "names": names,
+            "covers": covers,
+            "split_scenes": split_scenes,
             "output_dir": output_dir,
             "status": "queued",
             "message": "Queued (Waiting for available download slot...)",
+            "progress": 0,
+            "eta": "",
+            "title": None,
             "pid": None,
-            "process_obj": None, # To allow termination
-            "start_time": None,
-            "end_time": None
+            "process_obj": None,
+            "start_time": time.time(),
+            "end_time": None,
+            "completed_at": None,
+            "logs": deque(maxlen=100),
         }
         
         with self.lock:
             self.active_jobs[job_id] = job
             self.queue.append(job_id)
             
+        self.notify_change()
         return job_id
 
     def cancel_job(self, job_id):
+        if not re.match(r"^[a-f0-9]{8}$", job_id):
+            return False
+
         with self.lock:
-            # Check if queued
             if job_id in self.queue:
                 self.queue.remove(job_id)
                 if job_id in self.active_jobs:
-                    self.active_jobs[job_id]["status"] = "cancelled"
-                    self.active_jobs[job_id]["message"] = "Cancelled by user."
-                    # Move to history so it disappears from active view eventually? 
-                    # Requirement: "removed from status window"
-                    # We will treat cancelled like completed/failed for cleanup purposes.
-                    self.history[job_id] = self.active_jobs.pop(job_id)
+                    job = self.active_jobs.pop(job_id)
+                    job["status"] = "cancelled"
+                    job["message"] = "Cancelled by user."
+                    self.history[job_id] = job
+                self.notify_change()
                 return True
             
-            # Check if running
             if job_id in self.active_jobs:
                 job = self.active_jobs[job_id]
-                if job["status"] == "running" and job["process_obj"]:
+                if job["status"] in ["running", "downloading", "muxing", "scraping", "cleaning"] and job["process_obj"]:
                     try:
-                        # Try graceful shutdown first (Ctrl+C simulation) which aebn_dl handles
                         job["process_obj"].send_signal(signal.SIGINT)
                         job["message"] = "Stopping..."
-                        
-                        # Wait a moment to see if it exits (optional, but good for cleanup)
-                        # We won't block here long, let the worker loop handle the wait()
-                        
-                        # Mark as cancelled so the worker loop knows how to handle the exit code
-                        # (worker loop sees process die -> checks this status)
-                        job["status"] = "cancelled" 
+                        job["status"] = "cancelled"
+                        self.notify_change()
                         return True
                     except Exception as e:
                         logger.error(f"Error terminating job {job_id}: {e}")
-                        # Fallback to kill if needed (though wait loop usually handles this if we wanted to be robust)
                         try:
                             job["process_obj"].kill()
                         except Exception:
                             pass
-                
-                # We don't remove immediately, user might want to see "Cancelled"
-                # But requirement says "remove from status window".
-                # We'll mark it cancelled, the worker loop will see the exit and handle 'finished' logic.
-                # Actually if we terminate, the worker loop `process.wait()` will return.
                 return True
                 
         return False
 
-    def _sanitize_job(self, job):
-        # Create a copy and remove non-serializable fields
-        safe_job = job.copy()
-        safe_job.pop("process_obj", None)
-        return safe_job
-
     def restart_job(self, job_id):
+        if not re.match(r"^[a-f0-9]{8}$", job_id):
+            return None
+
         with self.lock:
-            # Look in history first (most likely place for retry), then active
             job = self.history.get(job_id) or self.active_jobs.get(job_id)
-            
             if not job:
                 return None
             
-            # If it's already running (active + in queue or running), do nothing or return existing
             if job["status"] in ["queued", "running", "downloading", "muxing", "scraping"]:
-                 return job_id
+                return job_id
 
-            # Reset status to queued
             job["status"] = "queued"
             job["message"] = "Restarting..."
             job["progress"] = 0
+            job["eta"] = ""
             job["pid"] = None
             job["process_obj"] = None
+            job["completed_at"] = None
             
-            # Move from history to active if needed
             if job_id in self.history:
                 del self.history[job_id]
                 self.active_jobs[job_id] = job
             
-            # Add to queue
             if job_id not in self.queue:
                 self.queue.append(job_id)
-                
-            return job_id
+
+        self.notify_change()
+        return job_id
 
     def delete_job(self, job_id):
+        if not re.match(r"^[a-f0-9]{8}$", job_id):
+            return False
+
         with self.lock:
-            # Check history first
+            job_found = False
             if job_id in self.history:
                 del self.history[job_id]
-                # Cleanup temp dir
-                job_work_dir = os.path.join(PROJECT_ROOT, "temp", job_id)
-                if os.path.exists(job_work_dir):
-                    try:
-                        shutil.rmtree(job_work_dir)
-                    except Exception as e:
-                        logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
-                return True
-            
-            # If in active, only delete if not strictly "running" (queued is fine to cancel+delete)
-            # But simpler: Cancel then Delete.
-            
-            if job_id in self.active_jobs:
-                # If running, try to cancel first
+                job_found = True
+            elif job_id in self.active_jobs:
                 self.cancel_job(job_id)
-                
-                # Force remove from active status (UI expects "Remove" to remove)
                 if job_id in self.active_jobs:
                     del self.active_jobs[job_id]
-                
-                # Cleanup temp dir (ONLY happens on manual delete now)
-                job_work_dir = os.path.join(PROJECT_ROOT, "temp", job_id)
-                if os.path.exists(job_work_dir):
-                    try:
-                        shutil.rmtree(job_work_dir)
-                    except Exception as e:
-                        logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
+                job_found = True
 
-                return True
-                
-            return False
+            # Safely cleanup temp workdir strictly within TEMP_BASE
+            job_work_dir = os.path.realpath(os.path.join(TEMP_BASE, job_id))
+            if job_work_dir.startswith(TEMP_BASE) and os.path.exists(job_work_dir):
+                try:
+                    shutil.rmtree(job_work_dir)
+                except Exception as e:
+                    logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
+
+        if job_found:
+            self.notify_change()
+        return job_found
+
+    def clear_completed_jobs(self):
+        """Bulk-dismiss all completed downloads from history."""
+        with self.lock:
+            completed_ids = [
+                jid for jid, j in self.history.items() if j.get("status") == "completed"
+            ]
+            for jid in completed_ids:
+                del self.history[jid]
+                work_dir = os.path.realpath(os.path.join(TEMP_BASE, jid))
+                if work_dir.startswith(TEMP_BASE) and os.path.exists(work_dir):
+                    try:
+                        shutil.rmtree(work_dir)
+                    except Exception:
+                        pass
+        self.notify_change()
+
+    def get_job_logs(self, job_id):
+        if not re.match(r"^[a-f0-9]{8}$", job_id):
+            return None
+        with self.lock:
+            job = self.active_jobs.get(job_id) or self.history.get(job_id)
+            if job and "logs" in job:
+                return list(job["logs"])
+        return None
+
+    def _sanitize_job(self, job):
+        safe_job = job.copy()
+        safe_job.pop("process_obj", None)
+        # Avoid bloating regular status updates with raw logs
+        safe_job.pop("logs", None)
+        return safe_job
 
     def get_status(self):
         with self.lock:
@@ -210,13 +283,20 @@ class DownloadManager:
                 active_list = list(self.active_jobs.values())
                 history_list = list(self.history.values())
                 all_jobs = active_list + history_list
-                # Return sanitized copies
-                results = [self._sanitize_job(j) for j in all_jobs]
-                
-                return results
+                return [self._sanitize_job(j) for j in all_jobs]
             except Exception as e:
                 logger.error(f"Error in get_status: {e}")
                 return []
+
+    def shutdown(self):
+        self.shutdown_event.set()
+        with self.lock:
+            for _, job in list(self.active_jobs.items()):
+                if job.get("process_obj"):
+                    try:
+                        job["process_obj"].terminate()
+                    except Exception:
+                        pass
 
     def _worker_loop(self):
         thread_name = threading.current_thread().name
@@ -227,25 +307,24 @@ class DownloadManager:
             with self.lock:
                 if self.queue:
                     job_id = self.queue.pop(0)
-                    logger.info(f"Worker {thread_name} popped job {job_id} from queue. Queue length now: {len(self.queue)}")
             
             if not job_id:
-                threading.Event().wait(1) # Sleep a bit
+                threading.Event().wait(0.5)
                 continue
                 
-            # Process Job
-            logger.info(f"Worker {thread_name} processing job {job_id}")
             self._run_job(job_id)
-            logger.info(f"Worker {thread_name} finished job {job_id}")
 
     def _run_job(self, job_id):
         job = None
-        job_work_dir = None # Initialize outside try block for finally access
+        job_work_dir = None
+        master_fd = None
+        slave_fd = None
+
         try:
             with self.lock:
                 if job_id in self.active_jobs:
                     job = self.active_jobs[job_id]
-                    job["status"] = "running" # Initial running state
+                    job["status"] = "running"
                     job["message"] = "Initializing..."
                     job["progress"] = 0
                     job["title"] = None
@@ -254,231 +333,226 @@ class DownloadManager:
             if not job:
                 return
 
+            self.notify_change()
+
             # Create isolated working directory
-            job_work_dir = os.path.join(PROJECT_ROOT, "temp", job_id)
+            job_work_dir = os.path.realpath(os.path.join(TEMP_BASE, job_id))
             os.makedirs(job_work_dir, exist_ok=True)
             
+            # Construct command
             cmd = ["python3", "-m", "aebn_dl.cli", job["url"]]
-            if job["threads"]: cmd.extend(["--threads", str(job["threads"])])
-            if job["resolution"]: cmd.extend(["--resolution", str(job["resolution"])])
-            if job["scene"]: cmd.extend(["--scene", str(job["scene"])])
-            if job["output_dir"]: cmd.extend(["--output_dir", job["output_dir"]])
+            if job.get("threads"): cmd.extend(["--threads", str(job["threads"])])
+            if job.get("resolution"): cmd.extend(["--resolution", str(job["resolution"])])
+            if job.get("split_scenes"):
+                cmd.append("--split-scenes")
+            elif job.get("scene"):
+                cmd.extend(["--scene", str(job["scene"])])
+            if job.get("names"): cmd.append("--names")
+            if job.get("covers"): cmd.append("--covers")
+            if job.get("output_dir"): cmd.extend(["--output_dir", job["output_dir"]])
             
-            # Explicitly set work directory to isolated temp folder using short flag
             cmd.extend(["-w", job_work_dir])
-            
             logger.info(f"[{job_id}] Running: {' '.join(cmd)}")
             
             env = os.environ.copy()
             env["PYTHONPATH"] = SOURCE_DIR + os.pathsep + env.get("PYTHONPATH", "")
             env["PYTHONUNBUFFERED"] = "1"
-            env["TERM"] = "xterm-256color" # Fake a real terminal
-            env["FORCE_COLOR"] = "1" # Force Rich to render
+            env["TERM"] = "xterm-256color"
+            env["FORCE_COLOR"] = "1"
             
-            # Use PTY to force the subprocess to think it's in a real terminal
-            # This ensures Rich prints the progress bars!
-            master_fd, slave_fd = pty.openpty()
-            
-            # Run the process in the ISOLATED working directory
+            if HAS_PTY:
+                master_fd, slave_fd = pty.openpty()
+                stdout_target = slave_fd
+                stderr_target = slave_fd
+            else:
+                stdout_target = subprocess.PIPE
+                stderr_target = subprocess.STDOUT
+
             process = subprocess.Popen(
                 cmd,
-                stdout=slave_fd,
-                stderr=slave_fd, # Merge stderr to stdout (PTY handles this)
+                stdout=stdout_target,
+                stderr=stderr_target,
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
-                cwd=job_work_dir,  # Use isolated dir
+                cwd=job_work_dir,
                 env=env,
-                close_fds=True # Important for PTY
+                close_fds=True
             )
             
-            # Close slave fd in parent process (so we get EOF when child dies)
-            os.close(slave_fd)
+            if slave_fd is not None:
+                os.close(slave_fd)
+                slave_fd = None
             
             with self.lock:
                 job["pid"] = process.pid
                 job["process_obj"] = process
             
-            # Parsing State
-            
-            # Helper to strip ANSI escape codes
+            # Parsing State & Regex
             def clean_ansi(text):
                 ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
                 return ansi_escape.sub('', text)
 
-            # Regex patterns (Updated for Rich output)
             re_filename = re.compile(r"Output file name:\s*(.*)")
             re_scraping = re.compile(r"Scraping movie info")
             re_downloading = re.compile(r"Downloading segments")
-            
-            # Rich Progress: "Video download: 12/34 ... 45% ... 0:01:23 00:04:56"
-            # Regex to find: "Video download:", then digits%, then TWO time-like strings
-            # Group 1: Progress %, Group 2: Elapsed, Group 3: ETA
             re_audio = re.compile(r"Audio download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?).*?(\d{1,2}:\d{2}(?::\d{2})?)")
             re_video = re.compile(r"Video download:.*?(\d+)%.*?(\d{1,2}:\d{2}(?::\d{2})?).*?(\d{1,2}:\d{2}(?::\d{2})?)")
-            
-            # Fallback if time not found (e.g. start)
-            re_audio_simple = re.compile(r"Audio download:.*?(\d+)%")
             re_video_simple = re.compile(r"Video download:.*?(\d+)%")
-            
             re_merging = re.compile(r"Merging (?:video|audio) segments.*?(\d+)%")
             re_muxing = re.compile(r"Muxing streams")
             re_cleanup = re.compile(r"Deleted temp files")
             
-            # Helper to read stream char by char/chunk to handle \r
-            def read_stream(master_fd):
-                buffer = ""
-                
-                while True:
-                    try:
-                        # Read from PTY master
-                        # Note: os.read returns bytes, need to decode
-                        data = os.read(master_fd, 1024) 
-                        if not data:
+            def read_stream(fd, proc):
+                if fd is not None:
+                    buffer = ""
+                    while True:
+                        try:
+                            data = os.read(fd, 1024)
+                            if not data:
+                                break
+                            chunk = data.decode('utf-8', errors='replace')
+                            for char in chunk:
+                                if char == '\n' or char == '\r':
+                                    if buffer.strip():
+                                        yield buffer
+                                    buffer = ""
+                                else:
+                                    buffer += char
+                        except OSError:
                             break
-                        
-                        chunk = data.decode('utf-8', errors='replace')
-                        
-                        # Process chunk
-                        for char in chunk:
-                             if char == '\n' or char == '\r':
-                                 if buffer.strip():
-                                     yield buffer
-                                 buffer = ""
-                             else:
-                                 buffer += char
-                                 
-                    except OSError:
-                        # Input/output error usually means the slave (process) closed
-                        break
-                
-                # Flush remaining
-                if buffer.strip():
-                     yield buffer
-            
-            # Pass the master_fd to the reader
-            for line in read_stream(master_fd):
-                # Clean ANSI codes immediately
-                clean_line = clean_ansi(line).strip()
-                
-                if not clean_line:
-                    continue
-                
-                # Log raw for debug
-                logger.info(f"[{job_id}] CLI: {clean_line}")
-                
-                # Skip status updates if we are cancelling
-                # We need to lock to check safely, or just check the local dict ref (atomic in python roughly)
-                # But safer to check inside specific update blocks or just ignore parsing if cancelled?
-                # If we ignore parsing, we might miss "Cleaned up" message, but that's fine for cancellation.
-                
-                should_skip = False
-                with self.lock:
-                    if job.get("status") == "cancelled":
-                        should_skip = True
-                if should_skip:
-                    continue
+                    if buffer.strip():
+                        yield buffer
+                else:
+                    if proc.stdout:
+                        for l in iter(proc.stdout.readline, ''):
+                            yield l
 
-                # Phase 1: Setup / Scraping
-                if re_scraping.search(clean_line):
-                     with self.lock:
-                        job["status"] = "scraping"
-                        job["message"] = "Fetching Metadata..."
+            last_notify_time = time.time()
 
-                # Phase 2: Start Downloading segments
-                if re_downloading.search(clean_line):
-                     with self.lock:
-                        job["status"] = "downloading"
-                        job["message"] = "Starting download..."
-
-                # Parse Filename
-                m_name = re_filename.search(clean_line)
-                if m_name:
-                    found_name = m_name.group(1).strip()
-                    with self.lock:
-                        job["title"] = found_name
-                        # Extract parsed resolution
-                        m_res = re.search(r"(\d{3,4}p)", found_name)
-                        if m_res:
-                            job["resolution"] = m_res.group(1)
-
-                        if job["status"] == "scraping":
-                             job["status"] = "downloading" 
-
-                # Parse Progress (Download)
-                # Video (Priority)
-                m_video = re_video.search(clean_line)
-                if m_video:
-                    current_video_prog = int(m_video.group(1))
-                    # Group 2 is Elapsed, Group 3 is ETA
-                    eta = m_video.group(3)
-                    with self.lock:
-                        job["progress"] = current_video_prog
-                        job["eta"] = eta
-                        job["message"] = f"Downloading Video: {current_video_prog}% (ETA: {eta})"
-                        
-                elif re_video_simple.search(clean_line):
-                    m = re_video_simple.search(clean_line)
-                    current_video_prog = int(m.group(1))
-                    with self.lock:
-                        job["progress"] = current_video_prog
-                        # Keep existing ETA if valid
-                
-                # Audio
-                # We track it but main status is driven by video if both active
-                m_audio = re_audio.search(clean_line)
-                if m_audio:
-                    pass
+            try:
+                for line in read_stream(master_fd, process):
+                    clean_line = clean_ansi(line).strip()
+                    if not clean_line:
+                        continue
                     
-                # Phase 3: Merging & Muxing
-                m_merge = re_merging.search(clean_line)
-                if m_merge:
                     with self.lock:
-                        job["status"] = "muxing"
-                        job["message"] = clean_line
-                        job["progress"] = int(m_merge.group(1))
-                        job["eta"] = ""
+                        job["logs"].append(clean_line)
 
-                if re_muxing.search(clean_line):
-                     with self.lock:
-                        job["status"] = "muxing"
-                        job["message"] = "Finalizing File (Muxing)..."
-                        job["progress"] = 99
-                        job["eta"] = ""
-                
-                if "Muxing success" in clean_line:
+                    # Check if cancelled
+                    should_skip = False
                     with self.lock:
-                         job["progress"] = 99
+                        if job.get("status") == "cancelled":
+                            should_skip = True
+                    if should_skip:
+                        continue
 
-                # Error Detection
-                if "RuntimeError:" in clean_line or "Error:" in clean_line:
-                    # Filter out "Error downloading segment" which are retried
-                    if "downloading segment" not in clean_line.lower():
-                        error_msg = clean_line.split(":", 1)[1].strip() if ":" in clean_line else clean_line
+                    updated = False
+
+                    if re_scraping.search(clean_line):
                         with self.lock:
-                            job["message"] = f"Error: {error_msg}"
-                            # Don't set status to error yet, wait for process exit
+                            job["status"] = "scraping"
+                            job["message"] = "Fetching Metadata..."
+                        updated = True
 
-                # Phase 4: Cleanup
-                if re_cleanup.search(clean_line):
-                    with self.lock:
-                        job["status"] = "cleaning"
-                        job["message"] = "Cleaning up..."
-                        job["eta"] = ""
+                    if re_downloading.search(clean_line):
+                        with self.lock:
+                            job["status"] = "downloading"
+                            job["message"] = "Starting download..."
+                        updated = True
+
+                    m_name = re_filename.search(clean_line)
+                    if m_name:
+                        found_name = m_name.group(1).strip()
+                        with self.lock:
+                            job["title"] = found_name
+                            m_res = re.search(r"(\d{3,4}p)", found_name)
+                            if m_res:
+                                job["resolution"] = m_res.group(1)
+                            if job["status"] == "scraping":
+                                job["status"] = "downloading"
+                        updated = True
+
+                    m_video = re_video.search(clean_line)
+                    if m_video:
+                        current_video_prog = int(m_video.group(1))
+                        eta = m_video.group(3)
+                        with self.lock:
+                            job["progress"] = current_video_prog
+                            job["eta"] = eta
+                            job["message"] = f"Downloading Video: {current_video_prog}% (ETA: {eta})"
+                        updated = True
+                    elif re_video_simple.search(clean_line):
+                        m = re_video_simple.search(clean_line)
+                        current_video_prog = int(m.group(1))
+                        with self.lock:
+                            job["progress"] = current_video_prog
+                        updated = True
+
+                    m_merge = re_merging.search(clean_line)
+                    if m_merge:
+                        with self.lock:
+                            job["status"] = "muxing"
+                            job["message"] = clean_line
+                            job["progress"] = int(m_merge.group(1))
+                            job["eta"] = ""
+                        updated = True
+
+                    if re_muxing.search(clean_line):
+                        with self.lock:
+                            job["status"] = "muxing"
+                            job["message"] = "Finalizing File (Muxing)..."
+                            job["progress"] = 99
+                            job["eta"] = ""
+                        updated = True
+                    
+                    if "Muxing success" in clean_line:
+                        with self.lock:
+                            job["progress"] = 99
+                        updated = True
+
+                    if "RuntimeError:" in clean_line or "Error:" in clean_line:
+                        if "downloading segment" not in clean_line.lower():
+                            error_msg = clean_line.split(":", 1)[1].strip() if ":" in clean_line else clean_line
+                            with self.lock:
+                                job["message"] = f"Error: {error_msg}"
+                            updated = True
+
+                    if re_cleanup.search(clean_line):
+                        with self.lock:
+                            job["status"] = "cleaning"
+                            job["message"] = "Cleaning up..."
+                            job["eta"] = ""
+                        updated = True
+
+                    # Throttle SSE notification to 250ms during high-frequency lines
+                    now = time.time()
+                    if updated and (now - last_notify_time > 0.25):
+                        self.notify_change()
+                        last_notify_time = now
+            finally:
+                # Guaranteed PTY Master cleanup - eliminates file descriptor leak!
+                if master_fd is not None:
+                    try:
+                        os.close(master_fd)
+                    except OSError:
+                        pass
+                    master_fd = None
 
             process.wait()
             
             with self.lock:
                 if process.returncode == 0:
                     if job["progress"] == 0:
-                         job["status"] = "failed"
-                         job["message"] = f"Finished with 0% progress. Check logs."
-                         logger.warning(f"Job {job_id} finished with 0% progress. CLI output possibly not parsed.")
+                        job["status"] = "failed"
+                        job["message"] = "Finished with 0% progress. Check logs."
+                        logger.warning(f"Job {job_id} finished with 0% progress.")
                     else:
                         job["status"] = "completed"
                         job["progress"] = 100
                         job["message"] = "Download finished."
                         job["eta"] = ""
+                        job["completed_at"] = time.time()
                 else:
                     if job["status"] != "cancelled": 
                         job["status"] = "failed"
@@ -490,111 +564,236 @@ class DownloadManager:
                 job["status"] = "error"
                 job["message"] = f"Error: {str(e)}"
         finally:
+            # Ensure slave_fd was closed
+            if slave_fd is not None:
+                try:
+                    os.close(slave_fd)
+                except OSError:
+                    pass
             with self.lock:
                 job["process_obj"] = None
                 job["pid"] = None
                 
-            # Post-processing
-            if job["status"] == "completed":
-                time.sleep(5) # Give user a moment to see "Completed" status
-                with self.lock:
-                    if job_id in self.active_jobs:
-                        # Success: Remove entirely (do not save to history)
-                        self.active_jobs.pop(job_id)
-            else:
-                # Failed/Error/Cancelled: Move to history so user can retry/inspect
-                with self.lock:
-                    if job_id in self.active_jobs:
-                         self.history[job_id] = self.active_jobs.pop(job_id)
+            # History retention
+            with self.lock:
+                if job_id in self.active_jobs:
+                    self.history[job_id] = self.active_jobs.pop(job_id)
+                    
+                    # Auto-prune completed jobs: retain at most 5 completed in history
+                    completed_items = [
+                        (jid, j) for jid, j in self.history.items() if j.get("status") == "completed"
+                    ]
+                    if len(completed_items) > 5:
+                        completed_items.sort(key=lambda x: x[1].get("completed_at") or 0)
+                        for old_id, _ in completed_items[:-5]:
+                            del self.history[old_id]
             
-            # Cleanup temp dir
-            # ONLY cleanup if completed (success). 
-            # If failed/cancelled, keep dir so user can restart/resume.
-            # Manual delete_job handles explicit cleanup.
-            if job["status"] == "completed":
+            # Clean temp dir on success
+            if job.get("status") == "completed":
                 if job_work_dir and os.path.exists(job_work_dir):
                     try:
                         shutil.rmtree(job_work_dir)
                     except Exception as e:
                         logger.error(f"Failed to cleanup temp dir {job_work_dir}: {e}")
 
+            self.notify_change()
+
 
 manager = DownloadManager(max_concurrent=2)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    manager.set_loop(asyncio.get_running_loop())
+    
+    # Prune orphaned temp dirs from previous runs
+    if os.path.exists(TEMP_BASE):
+        try:
+            for item in os.listdir(TEMP_BASE):
+                p = os.path.join(TEMP_BASE, item)
+                if os.path.isdir(p):
+                    shutil.rmtree(p, ignore_errors=True)
+            logger.info("Cleaned orphaned temporary directories on startup.")
+        except Exception as e:
+            logger.warning(f"Error during temp cleanup on startup: {e}")
+            
+    yield
+    
+    # Shutdown
+    logger.info("Application shutting down, stopping DownloadManager...")
+    manager.shutdown()
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+# Mount Static and Templates
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    fav_path = os.path.join(BASE_DIR, "static", "favicon.svg")
+    if os.path.exists(fav_path):
+        return FileResponse(fav_path)
+    return JSONResponse(content={}, status_code=404)
+
 @app.get("/")
-async def index(request: Request):
+async def index(request: Request, _: bool = Depends(verify_auth)):
     return templates.TemplateResponse(request=request, name="index.html", context={"request": request})
 
 @app.post("/download")
 async def download(
     url: str = Form(...),
+    scene: Optional[str] = Form(None),
     threads: int = Form(10),
-    resolution: str = Form("720"), 
-    scene: str = Form(None),
+    resolution: str = Form("720"),
+    names: bool = Form(False),
+    covers: bool = Form(False),
+    split_scenes: bool = Form(False),
+    _: bool = Depends(verify_auth),
 ):
-    if not scene:
-        scene = "1"
+    # Safely unwrap if called directly in tests/python without FastAPI dependency injection
+    if hasattr(split_scenes, "default"):
+        split_scenes = split_scenes.default
+    if hasattr(names, "default"):
+        names = names.default
+    if hasattr(covers, "default"):
+        covers = covers.default
+    if hasattr(threads, "default"):
+        threads = threads.default
+    if hasattr(resolution, "default"):
+        resolution = resolution.default
+    if hasattr(scene, "default"):
+        scene = scene.default
+
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Invalid URL. Must start with http:// or https://")
+    if url.startswith("-"):
+        raise HTTPException(status_code=400, detail="Invalid URL format")
+
+    threads = max(1, min(int(threads), 32))
+
+    allowed_resolutions = {"2160", "1440", "1080", "720", "480", "0"}
+    if resolution not in allowed_resolutions:
+        resolution = "720"
+
+    cleaned_scene = None
+    if not split_scenes:
+        if scene and scene.strip():
+            sc = scene.strip()
+            if not sc.isdigit():
+                raise HTTPException(status_code=400, detail="Scene must be a valid positive number")
+            cleaned_scene = sc
+        else:
+            cleaned_scene = "1"
         
-    # Get Download Dir from Env or Default
     output_dir = os.environ.get("DOWNLOAD_DIR", "./downloads")
     
-    job_id = manager.add_job(url, threads, resolution, scene, output_dir)
+    job_id = manager.add_job(
+        url=url,
+        threads=threads,
+        resolution=resolution,
+        scene=cleaned_scene,
+        output_dir=output_dir,
+        names=bool(names),
+        covers=bool(covers),
+        split_scenes=bool(split_scenes)
+    )
     
     return {"message": "Download queued", "job_id": job_id, "status": "queued"}
 
 @app.post("/cancel/{job_id}")
-async def cancel(job_id: str):
+async def cancel(job_id: str, _: bool = Depends(verify_auth)):
     success = manager.cancel_job(job_id)
     return {"success": success}
 
 @app.post("/restart/{job_id}")
-async def restart(job_id: str):
+async def restart(job_id: str, _: bool = Depends(verify_auth)):
     new_id = manager.restart_job(job_id)
     if new_id:
         return {"success": True, "new_job_id": new_id}
     return {"success": False, "message": "Job not found"}
 
 @app.delete("/delete/{job_id}")
-async def delete(job_id: str):
+async def delete(job_id: str, _: bool = Depends(verify_auth)):
     success = manager.delete_job(job_id)
     return {"success": success}
 
+@app.post("/clear-completed")
+async def clear_completed(_: bool = Depends(verify_auth)):
+    manager.clear_completed_jobs()
+    return {"success": True}
+
+@app.get("/logs/{job_id}")
+async def get_logs(job_id: str, _: bool = Depends(verify_auth)):
+    if not re.match(r"^[a-f0-9]{8}$", job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+    logs = manager.get_job_logs(job_id)
+    if logs is None:
+        raise HTTPException(status_code=404, detail="Job logs not found")
+    return {"job_id": job_id, "logs": logs}
+
 @app.get("/status")
-async def get_status():
+async def get_status(_: bool = Depends(verify_auth)):
     return manager.get_status()
 
 @app.get("/stream-status")
-async def stream_status(request: Request):
-    """Server-Sent Events (SSE) for real-time status updates."""
-    async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                break
-            
-            # GetData
-            data = manager.get_status()
-            yield f"data: {json.dumps(data)}\n\n"
-            
-            # Wait for 1 second (polled server-side is better than reconnecting http)
-            await asyncio.sleep(1)
+async def stream_status(request: Request, _: bool = Depends(verify_auth)):
+    """Server-Sent Events (SSE) event-driven status streaming with heartbeat."""
+    queue = asyncio.Queue(maxsize=10)
+    manager.add_subscriber(queue)
+    
+    # Push immediate current state to new client
+    initial_data = manager.get_status()
+    await queue.put(initial_data)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(data)}\n\n"
+                except asyncio.TimeoutError:
+                    # 15s keepalive ping
+                    yield ": ping\n\n"
+        finally:
+            manager.remove_subscriber(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 @app.get("/system-info")
-async def system_info():
-    # Attempt to read version from source/pyproject.toml or similar
+async def system_info(_: bool = Depends(verify_auth)):
     version = "Unknown"
     date = "Unknown"
     
     try:
-        # Read Manifest (from our tracker) for date/SHA
         manifest_path = os.path.join(PROJECT_ROOT, "manifest.json")
         if os.path.exists(manifest_path):
             with open(manifest_path, 'r') as f:
                 data = json.load(f)
-                version = data.get("last_known_good_sha", "Unknown")[:7] # Short SHA
+                version = data.get("last_known_good_sha", "Unknown")[:7]
                 date = data.get("last_update_timestamp", "Unknown")
     except Exception as e:
         logger.error(f"Error reading system info: {e}")
         
-    return {"version": version, "date": date}
+    return {"version": version, "date": date, "auth_enabled": AUTH_ENABLED}

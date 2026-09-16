@@ -14,11 +14,14 @@ A high-performance, containerized Web UI for the [aebn-vod-downloader](https://g
 
 ## Features
 - **Modern Web Dashboard**: Completely redesigned, minimalist, mobile-responsive card-based UI.
-- **Dynamic Theming**: First-class support for both Light and Dark modes using OKLCH colors.
-- **Smart Defaults**: Easily queue specific scenes (defaults to Scene 1 to prevent accidental massive downloads).
-- **Backend Stability**: Fully refactored asynchronous FastAPI backend, compliant with modern Starlette requirements.
-- **Smart Source Tracking**: Automatically checks upstream for updates and rebuilds.
-- **Resilient**: Falls back to local backups if upstream is unreachable.
+- **Smart Queueing**: Streamlined primary form (URL + Scene, defaulting to Scene 1) with quick-paste clipboard helper.
+- **Advanced Downloader Controls**: Collapsible options for target resolution (4K–480p), thread concurrency, split scenes, performer names, and cover art.
+- **Live Terminal Log Viewer**: Inspect real-time CLI output and failure diagnostics directly from the UI.
+- **Smart Auto-Dismiss**: Completed downloads remain visible for 60 seconds before automatically clearing, with a one-click "Clear Completed" button.
+- **Event-Driven SSE**: Ultra-low-latency, zero-idle-CPU status streaming with automatic keepalive heartbeat.
+- **Security Hardened**: Protected against DOM XSS, path traversal, and command injection; includes HTTP security headers and optional HTTP Basic Auth.
+- **Dynamic Theming**: First-class support for both Light and Dark modes using modern OKLCH colors.
+- **Smart Source Tracking**: Automatically checks upstream for updates and rebuilds with local fallback.
 - **Containerized**: Runs anywhere with Docker.
 
 ## Usage
@@ -38,6 +41,9 @@ services:
       - ./downloads:/downloads
     environment:
       DOWNLOAD_DIR: '/downloads'
+      # Optional HTTP Basic Authentication:
+      # AUTH_USERNAME: 'admin'
+      # AUTH_PASSWORD: 'your-secure-password'
     restart: unless-stopped
 ```
 
@@ -54,12 +60,13 @@ Access the dashboard at `http://localhost:21345`.
    ```
 2. Run the server:
    ```bash
-   python3 src/main.py
+   uvicorn src.main:app --host 0.0.0.0 --port 21345
    ```
-   (Note: You might need to run `uvicorn src.main:app` directly if main.py doesn't start uvicorn programmatically, or use the `CMD` from Dockerfile instructions).
 
 ## Configuration
 - `DOWNLOAD_DIR`: Path to save downloads (default: `./downloads`).
+- `AUTH_USERNAME`: *(Optional)* Basic Auth username.
+- `AUTH_PASSWORD`: *(Optional)* Basic Auth password. When both `AUTH_USERNAME` and `AUTH_PASSWORD` are set, the UI requires authentication. If omitted (e.g. when behind Cloudflare Zero Trust or on private LAN), access is open.
 
 The project includes an `update_source.sh` script that runs automatically in the Docker build process/CI to fetch the latest upstream downloader code.
 
